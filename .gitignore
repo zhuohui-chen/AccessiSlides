@@ -1,1 +1,9 @@
 __pycache__
+
+# Environment / secrets — never commit API keys
+.env
+.env.*
+!.env.example
+
+# uv-managed virtual environment
+.venv/

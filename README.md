@@ -184,7 +184,7 @@ Any applied fix can be independently rolled back without affecting other fixes:
 
 ---
 
-## Setup & Run
+## Installation
 
 This project uses [`uv`](https://docs.astral.sh/uv/) for Python version management, virtual environments, and package installs. Do **not** use `pip`, `pip-tools`, or `python -m venv` directly.
 
@@ -202,30 +202,194 @@ cd pptx-accessibility-agent
 #    uv reads pyproject.toml and pins everything to uv.lock
 uv sync
 
-# 4. Activate the environment (optional — uv run handles this automatically)
+# 4. (Optional) Activate the environment.
+#    You do NOT need this if you always use `uv run` — uv activates the env for you.
 source .venv/bin/activate      # macOS / Linux
 # Windows: .venv\Scripts\activate
-
-# 5. Run the agent on a PPTX file
-uv run python cli.py check --input path/to/slides.pptx
-
-# 6. Run with auto-fix (low risk) + interactive report
-uv run python cli.py fix --input path/to/slides.pptx --output path/to/fixed.pptx
-
-# 7. Roll back a specific fix item
-uv run python cli.py rollback --ledger path/to/ledger.json --item-id fix_20240601_001
-
-# 8. Run tests
-uv run pytest tests/ -v
-
-# 9. Add a new dependency
-uv add <package-name>
-
-# 10. Add a dev-only dependency
-uv add --dev <package-name>
 ```
 
 > **Lockfile**: `uv.lock` is committed to the repo. All contributors and CI runs use the exact same resolved versions. Never edit `uv.lock` by hand.
+
+The tool runs fully offline by default. The optional LLM layer (smarter alt-text and
+suggestion drafting) requires extra packages and an API key — see **Configuration** below.
+
+---
+
+## Configuration
+
+All configuration is optional. Settings are read from environment variables or a `.env`
+file in the project root, using the `pydantic-settings` model in `config.py`. **Every
+setting uses the `PPTXA_` prefix.**
+
+### Create a `.env` file
+
+Create a file named `.env` in the project root (it is git-ignored — never commit API keys):
+
+```dotenv
+# .env — all keys are optional; shown with their defaults
+
+# --- General behavior ---
+PPTXA_DEFAULT_LANGUAGE=en-US          # language metadata injected when missing
+PPTXA_DEFAULT_LEDGER_NAME=ledger.json # default ledger filename
+PPTXA_SNAPSHOT_DIR_NAME=snapshots     # snapshot subdirectory name
+PPTXA_AUTO_TITLE_PREFIX=Slide         # prefix for auto-generated slide titles
+
+# --- Optional LLM layer (OFF by default) ---
+PPTXA_LLM_ENABLED=false               # set true to turn on AI-assisted suggestions
+PPTXA_LLM_PROVIDER=openai             # "openai" or "anthropic"
+
+# Provide a key only for the provider you select:
+PPTXA_OPENAI_API_KEY=sk-...           # required if provider = openai
+PPTXA_ANTHROPIC_API_KEY=sk-ant-...    # required if provider = anthropic
+
+PPTXA_OPENAI_MODEL=gpt-4o-mini        # model used for the openai provider
+PPTXA_ANTHROPIC_MODEL=claude-opus-4-8 # model used for the anthropic provider
+PPTXA_LLM_TIMEOUT_SECONDS=30          # per-request timeout
+PPTXA_LLM_MAX_OUTPUT_TOKENS=300       # cap on generated suggestion length
+```
+
+You can also export any of these as shell environment variables instead of using `.env`;
+environment variables take precedence.
+
+### Enabling the optional LLM layer
+
+The LLM layer is **off by default** — the tool works fully with deterministic rules and
+template-based suggestions and needs no API key. Turn it on for higher-quality alt-text and
+fix drafting:
+
+```bash
+# 1. Install the optional LLM SDKs (anthropic + openai)
+uv sync --extra llm
+
+# 2. In .env, enable the layer and supply a key for your chosen provider
+#    PPTXA_LLM_ENABLED=true
+#    PPTXA_LLM_PROVIDER=anthropic
+#    PPTXA_ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**The LLM layer fails safe.** If it is disabled, the SDK is not installed, the provider name
+is unknown, or the API key is missing, the tool logs a warning and silently falls back to the
+deterministic pipeline — a misconfiguration can never break a run. When active, `fix` prints
+`LLM mode active: <provider>`; when it falls back it prints
+`LLM enabled but unavailable; using deterministic fixes only.`
+
+> **Get an API key:** OpenAI → https://platform.openai.com/api-keys ·
+> Anthropic → https://console.anthropic.com/
+
+---
+
+## Usage
+
+All commands are run through `cli.py`. Use `uv run` so the right environment is always used,
+and pass `-h` / `--help` to any command for its full option list.
+
+### `check` — detect issues, make no edits
+
+```bash
+uv run python cli.py check --input slides.pptx
+
+# Also write the findings to JSON:
+uv run python cli.py check --input slides.pptx --json-output findings.json
+```
+
+### `fix` — auto-fix low risk, stage medium, flag high
+
+```bash
+uv run python cli.py fix \
+  --input slides.pptx \
+  --output fixed.pptx \
+  --ledger audit/ledger.json     # optional; defaults to <output>.ledger.json
+
+# Start a clean ledger for this run:
+uv run python cli.py fix --input slides.pptx --output fixed.pptx --reset-ledger
+```
+
+This writes the remediated deck to `--output`, records every issue in the ledger, and prints a
+summary like `Auto-applied: 4; pending approval: 3; flagged manual: 2`. Medium-risk items are
+staged as `pending_approval` and applied **only** after you approve them in the review step below.
+
+### `report` — view the ledger and run human review
+
+```bash
+# Read-only summary of everything in the ledger:
+uv run python cli.py report --ledger audit/ledger.json
+
+# Interactive human-in-the-loop review (approve / edit / reject):
+uv run python cli.py report \
+  --ledger audit/ledger.json \
+  --pptx fixed.pptx \
+  --review \
+  --reviewer "Jane Doe" \
+  --output reviewed.pptx        # optional; defaults to <pptx>_reviewed.pptx
+```
+
+### `rollback` — undo a single applied fix
+
+```bash
+uv run python cli.py rollback \
+  --ledger audit/ledger.json \
+  --item-id fix_20240601_001 \
+  --pptx fixed.pptx \
+  --output rolled_back.pptx
+```
+
+### `export` — produce an audit report
+
+```bash
+uv run python cli.py export --ledger audit/ledger.json --format xlsx --output audit_report.xlsx
+uv run python cli.py export --ledger audit/ledger.json --format pdf  --output summary.pdf
+```
+
+### A typical end-to-end run
+
+```bash
+uv run python cli.py check  --input slides.pptx
+uv run python cli.py fix    --input slides.pptx --output fixed.pptx --ledger audit/ledger.json
+uv run python cli.py report --ledger audit/ledger.json --pptx fixed.pptx --review --output reviewed.pptx
+uv run python cli.py export --ledger audit/ledger.json --format pdf --output summary.pdf
+```
+
+---
+
+## Human-in-the-Loop Review (Approve / Edit / Reject)
+
+Medium-risk fixes are never applied silently — they wait in the ledger as `pending_approval`
+until a human dispositions them. Running `report --review` walks you through two groups:
+
+**1. Medium-risk pending suggestions.** For each item you see the issue and the proposed fix
+text, then choose an action at the prompt `Action [approve/edit/reject/skip]`:
+
+| Action | What happens |
+|---|---|
+| `approve` | The suggested fix is applied to the PPTX and the ledger entry becomes `approved`. |
+| `edit`    | You are prompted: `Enter replacement text`. **Type your own wording**, press Enter, and *your* text (not the suggestion) is applied and logged as `approved`. This is how you supply a human-authored alt text or title. |
+| `reject`  | No change is made; the entry is logged as `rejected`. |
+| `skip`    | Leave the item untouched and `pending_approval` for a later pass (this is the default if you just press Enter). |
+
+**2. LLM auto-applied low-risk items flagged for review.** When the LLM layer drafted a
+low-risk fix, it is applied immediately but flagged for a human to confirm. The prompt is
+`Action [keep/reject/skip]`: `keep` confirms it (records `human:<reviewer>` as approver),
+`reject` rolls it back from its snapshot, and `skip` leaves it flagged.
+
+Every edited or approved item is written into a single reviewed PPTX at `--output`, and the
+`--reviewer` name is recorded in the ledger's `approved_by` field for the audit trail. Because
+each fix has its own before/after snapshot, anything you approve can still be undone later with
+`rollback`.
+
+---
+
+## Development
+
+```bash
+# Run the test suite
+uv run pytest tests/ -v
+uv run pytest tests/ -v --cov=. --cov-report=term-missing   # with coverage
+
+# Manage dependencies (keeps uv.lock in sync — never edit pyproject.toml by hand)
+uv add <package-name>          # runtime dependency
+uv add --dev <package-name>    # dev-only dependency
+uv sync --extra llm            # install the optional LLM SDKs
+```
 
 ---
 
