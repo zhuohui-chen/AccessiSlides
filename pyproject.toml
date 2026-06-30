@@ -1,0 +1,28 @@
+[project]
+name = "pptx-accessibility-agent"
+version = "0.1.0"
+description = "Human-in-the-loop PowerPoint accessibility checker, fixer, ledger, and rollback CLI"
+readme = "README_IMPLEMENTATION.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.4.1",
+    "openpyxl>=3.1.5",
+    "pydantic-settings>=2.14.1",
+    "python-pptx>=1.0.2",
+    "reportlab>=4.5.1",
+    "structlog>=25.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+]
+llm = [
+    "anthropic>=0.113.0",
+    "openai>=2.44.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
