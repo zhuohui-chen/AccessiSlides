@@ -12,3 +12,4 @@ CLAUDE.md
 README_IMPLEMENTATION.md
 .claude
 .pytest_cache
+.DS_Store
