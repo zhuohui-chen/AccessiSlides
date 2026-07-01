@@ -13,6 +13,7 @@ LOW_RISK_RULES = {
 MEDIUM_RISK_RULES = {
     "missing_image_alt_text",
     "weak_image_alt_text",
+    "weak_slide_title",
     "reading_order_review",
     "llm_semantic_review",
 }

@@ -15,7 +15,7 @@ from llm import prompts
 from llm.base import LLMProvider
 from models import Finding, RiskLevel
 from utils.logging import get_logger
-from utils.pptx_xml import slide_context_text, title_text
+from utils.pptx_xml import slide_context_text, title_shape, title_text
 
 LOGGER = get_logger(__name__)
 
@@ -79,6 +79,54 @@ def draft_high_risk_alternative(provider: LLMProvider, *, element_type: str, con
             prompt=prompts.high_risk_prompt(element_type=element_type, context=context),
         ),
     )
+
+
+def detect_weak_titles(provider: LLMProvider, *, prs: Any) -> list[Finding]:
+    """Flag slides whose existing title is weak, with an LLM-proposed replacement.
+
+    Only slides that already carry a title shape are considered (absent titles
+    are handled deterministically by ``missing_slide_title``). The model both
+    judges vagueness and proposes the fix; a clear title yields no finding. Each
+    finding targets the title shape so the suggestion can be applied on approval.
+    """
+    findings: list[Finding] = []
+    for slide_index, slide in enumerate(prs.slides, start=1):
+        shape = title_shape(slide)
+        if shape is None:
+            continue
+        title = title_text(slide)
+        context = slide_context_text(slide, exclude_shape_id=str(shape.shape_id))
+        verdict = _safe(
+            provider,
+            "weak_title",
+            lambda: provider.generate_text(
+                system=prompts.WEAK_TITLE_SYSTEM,
+                prompt=prompts.weak_title_prompt(title=title, context=context),
+            ),
+        )
+        if not verdict or verdict.strip().upper() in {"OK", "NONE"}:
+            continue
+        suggestion = verdict.strip()
+        if suggestion == title:
+            continue
+        findings.append(
+            Finding(
+                rule_id="weak_slide_title",
+                slide_number=slide_index,
+                element_id=str(shape.shape_id),
+                element_type="slide_title",
+                wcag_criterion="2.4.6 Headings and Labels",
+                section_508_ref="E205.4",
+                risk_level=RiskLevel.MEDIUM,
+                issue_description=(
+                    f"Slide title {title!r} is vague or non-descriptive. Descriptive "
+                    "titles help screen reader users navigate the presentation."
+                ),
+                suggested_fix=suggestion,
+                metadata={"detected_by": provider.name, "suggestion_source": provider.name},
+            )
+        )
+    return findings
 
 
 def detect_semantic_issues(provider: LLMProvider, *, prs: Any) -> list[Finding]:

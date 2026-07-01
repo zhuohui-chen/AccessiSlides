@@ -10,11 +10,26 @@ from audit.snapshot import create_shape_snapshot
 from config import Settings
 from models import Finding, LedgerEntry, LedgerStatus, RiskLevel
 from utils.logging import get_logger
-from utils.pptx_xml import get_image_blob, get_shape_by_id, get_slide, set_alt_text
+from utils.pptx_xml import get_image_blob, get_shape_by_id, get_slide, set_alt_text, set_title_text
 
 LOGGER = get_logger(__name__)
 
 _ALT_TEXT_RULES = {"missing_image_alt_text", "weak_image_alt_text"}
+
+# Medium-risk rules whose approval applies a concrete edit to the PPTX.
+# Other medium-risk rules (e.g. "llm_semantic_review", "reading_order_review")
+# are advisory review notes with no auto-applicable shape edit; they are
+# acknowledged via ``acknowledge_suggestion`` instead of ``approve_suggestion``.
+APPLYABLE_RULES = _ALT_TEXT_RULES | {"weak_slide_title"}
+
+
+def is_applyable(rule_id: str | None) -> bool:
+    """Return True when an approved suggestion for this rule edits the PPTX.
+
+    Advisory review notes return False: approving them records human
+    acknowledgement in the ledger but makes no change to the presentation.
+    """
+    return rule_id in APPLYABLE_RULES
 
 
 def _maybe_llm_alt_text(finding: Finding, prs: Any | None, provider: Any | None) -> None:
@@ -81,6 +96,29 @@ def reject_suggestion(ledger_path: Path, item_id: str) -> LedgerEntry:
     return ledger.update_entry(ledger_path, item_id, status=LedgerStatus.REJECTED)
 
 
+def acknowledge_suggestion(ledger_path: Path, item_id: str, *, approved_by: str) -> LedgerEntry:
+    """Record human acknowledgement of an advisory medium-risk review note.
+
+    Advisory findings (e.g. ``llm_semantic_review``) have no auto-applicable
+    shape edit, so this marks the ledger entry approved without touching the
+    PPTX. Use :func:`approve_suggestion` for rules in :data:`APPLYABLE_RULES`.
+    """
+    entry = ledger.find_entry(ledger_path, item_id)
+    if entry.status != LedgerStatus.PENDING_APPROVAL:
+        raise ValueError(f"Item {item_id} is not pending approval")
+    if is_applyable(entry.rule_id):
+        raise ValueError(f"Rule {entry.rule_id} must be applied via approve_suggestion")
+    updated = ledger.update_entry(
+        ledger_path,
+        item_id,
+        status=LedgerStatus.APPROVED,
+        applied_at=ledger.utc_now(),
+        approved_by=f"human:{approved_by}",
+    )
+    LOGGER.info("suggestion_acknowledged", item_id=item_id, rule_id=entry.rule_id)
+    return updated
+
+
 def approve_suggestion(
     *,
     prs: Any,
@@ -92,8 +130,10 @@ def approve_suggestion(
 ) -> LedgerEntry:
     """Approve and apply a pending medium-risk suggestion.
 
-    Currently this applies image alt-text suggestions. Other medium-risk rules
-    can be added by extending the handler branch below.
+    Applies image alt-text suggestions (``missing_image_alt_text``,
+    ``weak_image_alt_text``) and weak-title rewrites (``weak_slide_title``).
+    Advisory rules without a concrete edit are handled by
+    :func:`acknowledge_suggestion` instead.
     """
     resolved_settings = settings or Settings()
     entry = ledger.find_entry(ledger_path, item_id)
@@ -102,7 +142,7 @@ def approve_suggestion(
     if entry.risk_level != RiskLevel.MEDIUM:
         raise ValueError(f"Item {item_id} is not medium risk")
 
-    if entry.rule_id not in {"missing_image_alt_text", "weak_image_alt_text"}:
+    if not is_applyable(entry.rule_id):
         raise ValueError(f"No approval handler for rule {entry.rule_id}")
 
     snapshot_path = create_shape_snapshot(
@@ -115,7 +155,11 @@ def approve_suggestion(
     )
     slide = get_slide(prs, entry.slide_number)
     shape = get_shape_by_id(slide, entry.element_id)
-    set_alt_text(shape, replacement_text or entry.suggested_fix or "")
+    new_text = replacement_text or entry.suggested_fix or ""
+    if entry.rule_id in _ALT_TEXT_RULES:
+        set_alt_text(shape, new_text)
+    else:  # weak_slide_title
+        set_title_text(shape, new_text)
     updated = ledger.update_entry(
         ledger_path,
         item_id,

@@ -8,6 +8,7 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from config import Settings
 from models import Finding, RiskLevel
+from utils.pptx_xml import iter_shapes
 
 
 def _table_dimensions(shape: Any) -> tuple[int, int]:
@@ -23,7 +24,7 @@ def check(prs: Any, settings: Settings) -> list[Finding]:
     del settings
     findings: list[Finding] = []
     for slide_index, slide in enumerate(prs.slides, start=1):
-        for shape in slide.shapes:
+        for shape in iter_shapes(slide.shapes):
             shape_id = str(shape.shape_id)
             if getattr(shape, "has_chart", False):
                 findings.append(

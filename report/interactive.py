@@ -10,7 +10,12 @@ from pptx import Presentation
 from audit import ledger
 from audit.rollback import _restore_snapshot
 from audit.snapshot import load_snapshot
-from fixer.suggest_fix import approve_suggestion, reject_suggestion
+from fixer.suggest_fix import (
+    acknowledge_suggestion,
+    approve_suggestion,
+    is_applyable,
+    reject_suggestion,
+)
 from models import LedgerStatus
 
 
@@ -54,6 +59,19 @@ def review_pending_suggestions(*, pptx_path: Path, output_path: Path, ledger_pat
     for entry in pending:
         click.echo("-" * 72)
         click.echo(f"{entry.item_id} | slide {entry.slide_number} | {entry.issue_description}")
+        if not is_applyable(entry.rule_id):
+            # Advisory review note (e.g. llm_semantic_review): no shape edit to
+            # apply, so the reviewer acknowledges or dismisses it for the record.
+            action = click.prompt("Action [acknowledge/dismiss/skip]", default="skip").strip().lower()
+            if action == "acknowledge":
+                acknowledge_suggestion(ledger_path, entry.item_id, approved_by=reviewer)
+                click.echo("Acknowledged.")
+            elif action == "dismiss":
+                reject_suggestion(ledger_path, entry.item_id)
+                click.echo("Dismissed.")
+            else:
+                click.echo("Skipped.")
+            continue
         click.echo(f"Suggested fix: {entry.suggested_fix or ''}")
         action = click.prompt("Action [approve/edit/reject/skip]", default="skip").strip().lower()
         if action == "approve":

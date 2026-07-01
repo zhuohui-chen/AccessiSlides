@@ -20,9 +20,10 @@ from checker.engine import run_checks_on_presentation
 from config import Settings
 from fixer.auto_fix import apply_auto_fix
 from fixer.flag_manual import record_manual_flag
-from fixer.suggest_fix import record_pending_suggestion
+from fixer.suggest_fix import approve_suggestion, record_pending_suggestion
 from llm.factory import get_provider
 from models import LedgerStatus, RiskLevel
+from utils.pptx_xml import title_text
 
 ONE_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p94AAAAASUVORK5CYII="
 
@@ -169,6 +170,40 @@ def test_detection_pass_appends_findings_with_provenance(tmp_path: Path) -> None
     assert llm_findings
     assert all(f.risk_level == RiskLevel.MEDIUM for f in llm_findings)
     assert all(f.metadata["detected_by"] == "fake:test-model" for f in llm_findings)
+
+
+def test_weak_title_suggestion_applies_and_rolls_back(tmp_path: Path) -> None:
+    """A vague title is detected, suggested, applied on approval, and reversible."""
+    pptx_path = tmp_path / "weak.pptx"
+    prs = Presentation()
+    prs.core_properties.language = "en-US"
+    slide = prs.slides.add_slide(prs.slide_layouts[5])
+    slide.shapes.title.text = "Slide 2"
+    body = slide.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+    body.text_frame.text = "Quarterly revenue grew across all regions."
+    prs.save(pptx_path)
+
+    ledger_path = tmp_path / "ledger.json"
+    fixed_path = tmp_path / "fixed.pptx"
+    rolled_path = tmp_path / "rolled.pptx"
+    better = "Regional Revenue Growth"
+
+    prs = Presentation(pptx_path)
+    findings = run_checks_on_presentation(prs, Settings(llm_enabled=True), provider=FakeProvider(text=better))
+    title_finding = next(f for f in findings if f.rule_id == "weak_slide_title")
+    assert title_finding.risk_level == RiskLevel.MEDIUM
+    assert title_finding.suggested_fix == better
+
+    entry = record_pending_suggestion(title_finding, ledger_path, prs=prs, provider=FakeProvider(text=better))
+    assert entry.status == LedgerStatus.PENDING_APPROVAL
+
+    approved = approve_suggestion(prs=prs, ledger_path=ledger_path, item_id=entry.item_id, approved_by="alice")
+    assert approved.status == LedgerStatus.APPROVED
+    prs.save(fixed_path)
+    assert title_text(Presentation(fixed_path).slides[0]) == better
+
+    rollback_item(pptx_path=fixed_path, output_path=rolled_path, ledger_path=ledger_path, item_id=entry.item_id)
+    assert title_text(Presentation(rolled_path).slides[0]) == "Slide 2"
 
 
 def test_detection_skipped_when_disabled(tmp_path: Path) -> None:

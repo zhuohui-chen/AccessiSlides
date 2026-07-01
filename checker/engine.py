@@ -46,6 +46,7 @@ def run_checks_on_presentation(
 
         resolved_provider = provider or get_provider(resolved_settings)
         if resolved_provider is not None:
+            findings.extend(service.detect_weak_titles(resolved_provider, prs=prs))
             findings.extend(service.detect_semantic_issues(resolved_provider, prs=prs))
 
     for finding in findings:

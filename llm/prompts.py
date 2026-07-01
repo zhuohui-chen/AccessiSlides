@@ -37,9 +37,20 @@ HIGH_RISK_SYSTEM = (
 
 DETECTION_SYSTEM = (
     "You are an accessibility reviewer inspecting one PowerPoint slide's text "
-    "content for issues that deterministic rules miss: vague or non-descriptive "
-    "titles, ambiguous wording, or reliance on color/visual cues described in the "
-    "text. Be conservative — only report a clear issue. Return plain text only."
+    "content for issues that deterministic rules miss: ambiguous wording or "
+    "reliance on color/visual cues described in the text. Do NOT comment on the "
+    "slide title — title quality is handled by a separate dedicated check. Be "
+    "conservative — only report a clear issue. Return plain text only."
+)
+
+WEAK_TITLE_SYSTEM = (
+    "You judge whether an existing PowerPoint slide title is descriptive enough "
+    "to satisfy WCAG 2.4.6 Headings and Labels. A title is weak when it is "
+    "generic, ambiguous, or fails to describe the slide's content (e.g. 'Slide 2', "
+    "'Untitled', 'Overview' on a slide that is not an overview). When the title is "
+    "already clear and descriptive, reply with exactly 'OK'. When it is weak, "
+    "reply with ONLY a better replacement title — a few words of plain text, no "
+    "quotation marks or preamble."
 )
 
 
@@ -83,8 +94,18 @@ def detection_prompt(*, slide_number: int, title: str, context: str) -> str:
     """Build the user prompt for the semantic detection pass on one slide."""
     return (
         f"Slide {slide_number}.\n"
-        f"Detected title: {title or '(none)'}\n"
+        f"Title (context only, do not critique): {title or '(none)'}\n"
         f"Slide text: {context or '(none)'}\n\n"
-        "If there is a clear accessibility issue with the title or wording, reply with "
+        "If the slide text (not the title) has a clear accessibility issue, reply with "
         "one line: '<short issue summary>'. If there is no clear issue, reply with exactly 'NONE'."
     )
+
+
+def weak_title_prompt(*, title: str, context: str) -> str:
+    """Build the user prompt judging an existing slide title and proposing a fix."""
+    context = context.strip()
+    parts = [f"Current slide title: {title}"]
+    if context:
+        parts.append(f"Slide text content: {context}")
+    parts.append("Is this title descriptive? Reply 'OK' if so, otherwise reply with a better title.")
+    return "\n".join(parts)

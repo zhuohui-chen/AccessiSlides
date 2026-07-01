@@ -9,7 +9,7 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from config import Settings
 from models import Finding, RiskLevel
-from utils.pptx_xml import get_alt_text, slide_context_text, title_text
+from utils.pptx_xml import get_alt_text, iter_shapes, slide_context_text, title_text
 
 FILENAME_PATTERN = re.compile(r"^(image|img|picture|photo|diagram)[-_ ]?\d*\.(png|jpe?g|gif|bmp|svg)$", re.I)
 AUTOGEN_PATTERN = re.compile(r"^(image|img|picture|photo|graphic)[-_ ]?\d+$", re.I)
@@ -44,7 +44,7 @@ def check(prs: Any, settings: Settings) -> list[Finding]:
     del settings
     findings: list[Finding] = []
     for slide_index, slide in enumerate(prs.slides, start=1):
-        for shape in slide.shapes:
+        for shape in iter_shapes(slide.shapes):
             if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
                 continue
             shape_id = str(shape.shape_id)

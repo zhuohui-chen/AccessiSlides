@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from lxml import etree
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.oxml import parse_xml
 
 
@@ -91,10 +92,24 @@ def get_slide(prs: Any, slide_number: int) -> Any:
     return prs.slides[slide_number - 1]
 
 
+def iter_shapes(shapes: Any) -> Iterable[Any]:
+    """Yield every shape in a container, descending into group shapes.
+
+    PowerPoint groups (``MSO_SHAPE_TYPE.GROUP``) nest their members, and
+    iterating a slide's shape tree does not recurse into them. This walker
+    yields each group shape and then its descendants, so a slide that groups
+    several charts or pictures exposes every figure individually.
+    """
+    for shape in shapes:
+        yield shape
+        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            yield from iter_shapes(shape.shapes)
+
+
 def get_shape_by_id(slide: Any, shape_id: str | int) -> Any:
-    """Return a shape by PowerPoint shape ID."""
+    """Return a shape by PowerPoint shape ID, searching inside groups."""
     target = str(shape_id)
-    for shape in slide.shapes:
+    for shape in iter_shapes(slide.shapes):
         if str(shape.shape_id) == target:
             return shape
     raise KeyError(f"Shape id {target} not found on slide")
@@ -126,7 +141,7 @@ def text_from_shape(shape: Any) -> str:
 def slide_context_text(slide: Any, *, exclude_shape_id: str | None = None, limit: int = 180) -> str:
     """Return concise text context from a slide."""
     snippets: list[str] = []
-    for shape in slide.shapes:
+    for shape in iter_shapes(slide.shapes):
         if exclude_shape_id is not None and str(shape.shape_id) == str(exclude_shape_id):
             continue
         text = text_from_shape(shape).strip()
@@ -136,17 +151,36 @@ def slide_context_text(slide: Any, *, exclude_shape_id: str | None = None, limit
     return context[:limit].strip()
 
 
+def title_shape(slide: Any) -> Any | None:
+    """Return the shape holding the slide's title text, if one carries text.
+
+    Prefers the layout title placeholder, then falls back to any shape whose
+    name contains "title". Returns ``None`` when no title-bearing shape exists.
+    """
+    placeholder = getattr(slide.shapes, "title", None)
+    if placeholder is not None and text_from_shape(placeholder).strip():
+        return placeholder
+    for shape in slide.shapes:
+        if "title" in get_shape_name(shape).lower() and text_from_shape(shape).strip():
+            return shape
+    return None
+
+
 def title_text(slide: Any) -> str:
     """Return the best available slide title text."""
-    title_shape = getattr(slide.shapes, "title", None)
-    if title_shape is not None:
-        title = text_from_shape(title_shape).strip()
-        if title:
-            return title
-    for shape in slide.shapes:
-        name = get_shape_name(shape).lower()
-        if "title" in name:
-            title = text_from_shape(shape).strip()
-            if title:
-                return title
-    return ""
+    shape = title_shape(slide)
+    return "" if shape is None else text_from_shape(shape).strip()
+
+
+def set_title_text(shape: Any, text: str) -> None:
+    """Replace a title shape's text with ``text``, keeping its first run's font."""
+    if not getattr(shape, "has_text_frame", False):
+        raise ValueError("Title shape has no text frame")
+    text_frame = shape.text_frame
+    paragraph = text_frame.paragraphs[0]
+    font = paragraph.runs[0].font if paragraph.runs else None
+    size = font.size if font is not None else None
+    text_frame.text = text.strip()
+    new_paragraph = text_frame.paragraphs[0]
+    if size is not None and new_paragraph.runs:
+        new_paragraph.runs[0].font.size = size
