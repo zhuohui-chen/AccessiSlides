@@ -7,3 +7,8 @@ __pycache__
 
 # uv-managed virtual environment
 .venv/
+
+CLAUDE.md
+README_IMPLEMENTATION.md
+.claude
+.pytest_cache
