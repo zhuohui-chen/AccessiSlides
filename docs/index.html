@@ -269,6 +269,38 @@
     .stat p { margin: 6px 0 0; color: var(--text-muted); font-size: .92rem; }
     @media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
 
+    /* ---------- Install ---------- */
+    .install-steps { max-width: 880px; margin: 0 auto; display: grid; gap: 18px; }
+    .istep {
+      display: grid; grid-template-columns: 44px 1fr; gap: 22px; align-items: start;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px 28px;
+    }
+    .istep .inum {
+      width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+      font-weight: 800; font-size: 1.05rem; color: #06122c; background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    }
+    .istep h3 { margin: 3px 0 10px; font-size: 1.2rem; }
+    .istep p { margin: 0 0 12px; color: var(--text-muted); font-size: .97rem; }
+    .istep p:last-child { margin-bottom: 0; }
+    .istep code {
+      background: var(--bg-soft); border: 1px solid var(--border); border-radius: 6px;
+      padding: 1px 6px; font-family: 'JetBrains Mono', monospace; font-size: .85em; color: var(--accent);
+    }
+    .os { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+    .os-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 12px; padding: 15px 16px; }
+    .os-card .os-h { font-weight: 700; font-size: .92rem; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; color: var(--text); }
+    .os-card p { font-size: .9rem; margin: 0; }
+    .mini-code {
+      background: #0a0f1e; border: 1px solid var(--border); border-radius: 8px; padding: 11px 13px; margin-top: 8px;
+      font-family: 'JetBrains Mono', monospace; font-size: .78rem; color: #d6def5; overflow-x: auto; white-space: pre;
+    }
+    .note {
+      border-left: 3px solid var(--medium); background: rgba(255,200,87,.08); border-radius: 0 8px 8px 0;
+      padding: 11px 15px; font-size: .9rem; color: var(--text-muted); margin-top: 14px;
+    }
+    .note strong { color: var(--text); }
+    @media (max-width: 620px) { .os { grid-template-columns: 1fr; } .istep { grid-template-columns: 1fr; gap: 14px; } }
+
     /* ---------- Web app showcase ---------- */
     .appshow { display: grid; grid-template-columns: 1.02fr .98fr; gap: 44px; align-items: center; }
     .appshow .section-head { text-align: left; margin: 0 0 16px; }
@@ -340,7 +372,7 @@
         <a href="#features">Features</a>
         <a href="#triage">Risk triage</a>
         <a href="#workflow">Workflow</a>
-        <a href="#quickstart">Quickstart</a>
+        <a href="#install">Install</a>
         <a class="btn btn-primary" href="https://github.com/zhuohui-chen/AccessiSlides">GitHub ↗</a>
       </nav>
     </div>
@@ -362,7 +394,7 @@
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#app">See the app →</a>
-          <a class="btn btn-ghost" href="#quickstart">Quickstart</a>
+          <a class="btn btn-ghost" href="#install">Install guide</a>
         </div>
         <div class="badges">
           <span class="chip"><strong>Drag &amp; drop</strong> — no terminal</span>
@@ -394,7 +426,7 @@
             <li><span class="tick" aria-hidden="true">✓</span> Private by design — your file &amp; API key never leave the machine</li>
           </ul>
           <div class="hero-actions" style="justify-content:flex-start;">
-            <a class="btn btn-primary" href="#quickstart">Launch it →</a>
+            <a class="btn btn-primary" href="#install">How to install →</a>
             <a class="btn btn-ghost" href="https://github.com/zhuohui-chen/AccessiSlides">View on GitHub</a>
           </div>
         </div>
@@ -612,19 +644,157 @@
       </div>
     </section>
 
-    <!-- QUICKSTART -->
+    <!-- INSTALL -->
+    <section id="install">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="kicker">Step by step</span>
+          <h2>Install it on your computer</h2>
+          <p>No coding experience needed. Do this once, then it's a double-click every time. Steps are shown for both macOS and Windows.</p>
+        </div>
+
+        <div class="install-steps">
+
+          <!-- 1 -->
+          <div class="istep">
+            <div class="inum" aria-hidden="true">1</div>
+            <div>
+              <h3>Download the app from GitHub</h3>
+              <p>Open the project page at
+                <a href="https://github.com/zhuohui-chen/AccessiSlides">github.com/zhuohui-chen/AccessiSlides</a>.
+                Click the green <strong>&lt;&gt; Code</strong> button near the top-right, then choose
+                <strong>Download ZIP</strong> at the bottom of the menu.</p>
+              <div class="os">
+                <div class="os-card">
+                  <div class="os-h">🍎 macOS</div>
+                  <p>Find <code>AccessiSlides-main.zip</code> in your <strong>Downloads</strong> folder and
+                    double-click it. macOS unzips it into a folder named <code>AccessiSlides-main</code>.</p>
+                </div>
+                <div class="os-card">
+                  <div class="os-h">🪟 Windows</div>
+                  <p>In <strong>Downloads</strong>, right-click <code>AccessiSlides-main.zip</code> →
+                    <strong>Extract All…</strong> → <strong>Extract</strong>. You'll get an
+                    <code>AccessiSlides-main</code> folder.</p>
+                </div>
+              </div>
+              <div class="note">💡 <strong>Tip:</strong> Move that folder somewhere easy to find, like your <strong>Desktop</strong>.</div>
+            </div>
+          </div>
+
+          <!-- 2 -->
+          <div class="istep">
+            <div class="inum" aria-hidden="true">2</div>
+            <div>
+              <h3>Install <code>uv</code> — the engine that runs everything</h3>
+              <p><code>uv</code> is a small, free tool that sets up Python and every other piece for you, so you
+                don't have to install them one by one. You only do this once. Copy the line for your system,
+                paste it into the terminal, and press <strong>Enter</strong>.</p>
+              <div class="os">
+                <div class="os-card">
+                  <div class="os-h">🍎 macOS</div>
+                  <p>Open <strong>Terminal</strong> (press <code>⌘&nbsp;Space</code>, type “Terminal”, Enter), then paste:</p>
+                  <div class="mini-code">curl -LsSf https://astral.sh/uv/install.sh | sh</div>
+                </div>
+                <div class="os-card">
+                  <div class="os-h">🪟 Windows</div>
+                  <p>Open <strong>PowerShell</strong> (Start menu → type “PowerShell”, Enter), then paste:</p>
+                  <div class="mini-code">powershell -c "irm https://astral.sh/uv/install.ps1 | iex"</div>
+                </div>
+              </div>
+              <div class="note">💡 When it finishes, <strong>close the terminal and open a new one</strong> so the
+                <code>uv</code> command is recognized. Python is installed automatically by <code>uv</code> — you
+                don't need to install it separately.</div>
+            </div>
+          </div>
+
+          <!-- 3 -->
+          <div class="istep">
+            <div class="inum" aria-hidden="true">3</div>
+            <div>
+              <h3>Point the terminal at the folder &amp; set up</h3>
+              <p>The terminal needs to be “inside” the <code>AccessiSlides-main</code> folder from Step&nbsp;1:</p>
+              <div class="os">
+                <div class="os-card">
+                  <div class="os-h">🍎 macOS</div>
+                  <p>In Terminal, type <code>cd</code> and a space, then <strong>drag the folder</strong> onto the
+                    window and press Enter.</p>
+                </div>
+                <div class="os-card">
+                  <div class="os-h">🪟 Windows</div>
+                  <p><strong>Shift&nbsp;+ right-click</strong> the folder → <strong>Open PowerShell window here</strong>
+                    (or “Open in Terminal”).</p>
+                </div>
+              </div>
+              <p>Then set everything up — this downloads Python and the libraries. The first run takes a minute:</p>
+              <div class="mini-code">uv sync</div>
+            </div>
+          </div>
+
+          <!-- 4 -->
+          <div class="istep">
+            <div class="inum" aria-hidden="true">4</div>
+            <div>
+              <h3>Launch the app</h3>
+              <p>Open the <code>AccessiSlides-main</code> folder and <strong>double-click the launcher</strong>:</p>
+              <div class="os">
+                <div class="os-card">
+                  <div class="os-h">🍎 macOS</div>
+                  <p><code>Start-AccessiSlides.command</code></p>
+                </div>
+                <div class="os-card">
+                  <div class="os-h">🪟 Windows</div>
+                  <p><code>Start-AccessiSlides.bat</code></p>
+                </div>
+              </div>
+              <p>Your browser opens automatically at <code>http://127.0.0.1:8765</code>. Prefer the terminal?
+                Run <code>uv run python cli.py serve</code> instead.</p>
+              <div class="note">🔐 <strong>First time only:</strong> on <strong>macOS</strong> you may see “cannot be
+                opened because it is from an unidentified developer” — right-click the launcher →
+                <strong>Open</strong> → <strong>Open</strong>. On <strong>Windows</strong>, if you see “Windows
+                protected your PC”, click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
+            </div>
+          </div>
+
+          <!-- 5 -->
+          <div class="istep">
+            <div class="inum" aria-hidden="true">5</div>
+            <div>
+              <h3>(Optional) Turn on AI suggestions</h3>
+              <p>The app works great on its own with built-in fixes. For smarter alt-text and titles, open
+                <strong>⚙️ Settings</strong> in the app and paste an API key from
+                <a href="https://console.anthropic.com/">Anthropic</a> or
+                <a href="https://platform.openai.com/api-keys">OpenAI</a>. The key is held in memory for that
+                session only — never saved to disk or sent anywhere except your chosen AI provider.</p>
+            </div>
+          </div>
+
+          <!-- 6 -->
+          <div class="istep">
+            <div class="inum" aria-hidden="true">6</div>
+            <div>
+              <h3>Everyday use, stopping &amp; updating</h3>
+              <p><strong>Use it again anytime:</strong> just double-click the launcher — no setup needed after the first time.</p>
+              <p><strong>Stop the app:</strong> close the small terminal window that opened alongside it (or press <code>Ctrl&nbsp;+&nbsp;C</code> in it).</p>
+              <p><strong>Update to a newer version:</strong> download the ZIP again (Step&nbsp;1), replace the old folder, then run <code>uv sync</code> once more.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- COMMAND REFERENCE -->
     <section id="quickstart">
       <div class="wrap quickstart">
         <div>
           <div class="section-head">
-            <span class="kicker">Quickstart</span>
-            <h2>Up and running in minutes</h2>
+            <span class="kicker">Command reference</span>
+            <h2>Every command in one place</h2>
           </div>
           <p style="color:var(--text-muted); margin-top:0;">
-            One-time setup with <a href="https://docs.astral.sh/uv/">uv</a> (no <code>pip</code> or manual
-            <code>venv</code>), then launch the app. It runs fully offline; the optional AI layer for
-            smarter alt-text is off by default. Everyday users just double-click
-            <code>Start-AccessiSlides</code> — no terminal at all.
+            Already comfortable in a terminal? Here's the whole thing at a glance —
+            setup, launching the app, and the full CLI. See the
+            <a href="#install">step-by-step install</a> above if you'd rather be walked through it.
           </p>
           <div class="hero-actions" style="justify-content:flex-start;">
             <a class="btn btn-primary" href="https://github.com/zhuohui-chen/AccessiSlides">Clone the repo →</a>
