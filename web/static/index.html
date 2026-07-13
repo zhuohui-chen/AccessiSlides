@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AccessiSlides — PowerPoint accessibility, locally</title>
+  <style>
+    :root {
+      --bg:#0b1020; --bg-soft:#11172b; --surface:#151d34; --surface-2:#1b2542;
+      --border:#263256; --text:#e8ecf6; --text-muted:#a7b0c8; --text-dim:#7c88a6;
+      --brand:#6ea8fe; --brand-2:#a98bff; --accent:#3ddc97;
+      --low:#3ddc97; --medium:#ffc857; --high:#ff6b6b;
+      --radius:16px; --radius-sm:10px; --shadow:0 20px 45px -20px rgba(0,0,0,.7); --maxw:1000px;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; color:var(--text); background:var(--bg); line-height:1.6;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;
+    }
+    body::before {
+      content:""; position:fixed; inset:0; z-index:-1;
+      background:
+        radial-gradient(60rem 60rem at 15% -10%, rgba(110,168,254,.16), transparent 55%),
+        radial-gradient(50rem 50rem at 100% 0%, rgba(169,139,255,.14), transparent 50%),
+        radial-gradient(40rem 40rem at 80% 110%, rgba(61,220,151,.10), transparent 55%),
+        var(--bg);
+    }
+    a { color:var(--brand); }
+    :focus-visible { outline:3px solid var(--brand); outline-offset:2px; border-radius:6px; }
+    .wrap { max-width:var(--maxw); margin:0 auto; padding:0 20px; }
+
+    header.nav {
+      position:sticky; top:0; z-index:50; backdrop-filter:blur(12px);
+      background:rgba(11,16,32,.72); border-bottom:1px solid var(--border);
+    }
+    .nav-inner { display:flex; align-items:center; justify-content:space-between; height:62px; gap:12px; }
+    .brand { display:flex; align-items:center; gap:12px; font-weight:800; font-size:1.1rem; letter-spacing:-.02em; }
+    .logo {
+      width:32px; height:32px; border-radius:9px; flex:none; color:#06122c; font-weight:900;
+      background:linear-gradient(135deg,var(--brand),var(--brand-2)); display:grid; place-items:center;
+    }
+    .btn {
+      display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border-radius:10px;
+      font-weight:600; font-size:.9rem; border:1px solid var(--border); cursor:pointer;
+      background:var(--surface-2); color:var(--text); transition:transform .12s ease, background .15s ease;
+    }
+    .btn:hover:not(:disabled) { transform:translateY(-1px); }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-primary { background:linear-gradient(135deg,var(--brand),var(--brand-2)); color:#06122c; border-color:transparent; }
+    .btn-ghost { background:transparent; }
+    .btn-sm { padding:6px 11px; font-size:.82rem; }
+    .btn-approve { border-color:rgba(61,220,151,.5); }
+    .btn-approve:hover:not(:disabled) { background:rgba(61,220,151,.14); }
+    .btn-reject { border-color:rgba(255,107,107,.5); }
+    .btn-reject:hover:not(:disabled) { background:rgba(255,107,107,.14); }
+
+    main { padding:34px 0 80px; }
+    h1 { font-size:1.9rem; letter-spacing:-.02em; margin:0 0 6px; }
+    .lede { color:var(--text-muted); margin:0 0 26px; max-width:60ch; }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); }
+    .settings { margin-bottom:20px; overflow:hidden; }
+    .settings summary {
+      list-style:none; cursor:pointer; padding:15px 20px; display:flex; align-items:center;
+      justify-content:space-between; font-weight:600;
+    }
+    .settings summary::-webkit-details-marker { display:none; }
+    .settings[open] summary { border-bottom:1px solid var(--border); }
+    .settings .body { padding:18px 20px; display:grid; gap:16px; grid-template-columns:1fr 1fr; }
+    .field { display:flex; flex-direction:column; gap:6px; }
+    .field.wide { grid-column:1 / -1; }
+    label { font-size:.83rem; color:var(--text-muted); font-weight:600; }
+    input, select {
+      padding:10px 12px; border-radius:10px; border:1px solid var(--border);
+      background:var(--bg-soft); color:var(--text); font-size:.92rem; font-family:inherit;
+    }
+    .hint { font-size:.78rem; color:var(--text-dim); }
+
+    .drop {
+      border:2px dashed var(--border); border-radius:var(--radius); background:var(--bg-soft);
+      padding:46px 24px; text-align:center; cursor:pointer; transition:border-color .15s, background .15s;
+    }
+    .drop:hover, .drop.drag { border-color:var(--brand); background:rgba(110,168,254,.07); }
+    .drop .big { font-size:1.1rem; font-weight:700; }
+    .drop .sub { color:var(--text-dim); font-size:.9rem; margin-top:4px; }
+
+    .status-line { margin:18px 0; color:var(--text-muted); min-height:1.4em; }
+    .spinner { display:inline-block; width:15px; height:15px; border:2px solid var(--border);
+      border-top-color:var(--brand); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; margin-right:8px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .summary-bar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:20px 0 8px; }
+    .pill { display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:999px;
+      font-size:.82rem; font-weight:600; border:1px solid var(--border); background:var(--surface-2); }
+    .dot { width:9px; height:9px; border-radius:50%; }
+    .dot.low { background:var(--low); } .dot.medium { background:var(--medium); } .dot.high { background:var(--high); }
+    .dot.done { background:var(--brand); }
+    .spacer { flex:1; }
+
+    .group-title { margin:26px 0 10px; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase; color:var(--text-dim); font-weight:700; }
+    .item { padding:16px 18px; border:1px solid var(--border); border-radius:var(--radius-sm);
+      background:var(--surface); margin-bottom:10px; display:flex; gap:14px; align-items:flex-start; }
+    .item .risk { flex:none; width:64px; }
+    .badge { display:inline-block; padding:3px 9px; border-radius:999px; font-size:.72rem; font-weight:800; letter-spacing:.03em; }
+    .badge.low { background:rgba(61,220,151,.16); color:var(--low); }
+    .badge.medium { background:rgba(255,200,87,.16); color:var(--medium); }
+    .badge.high { background:rgba(255,107,107,.16); color:var(--high); }
+    .item .body { flex:1; min-width:0; }
+    .item .meta { font-size:.78rem; color:var(--text-dim); margin-bottom:3px; }
+    .item .desc { font-size:.92rem; }
+    .item .fix { margin-top:7px; font-size:.88rem; color:var(--text-muted); background:var(--bg-soft);
+      border:1px solid var(--border); border-radius:8px; padding:8px 11px; word-break:break-word; }
+    .item .fix b { color:var(--text); font-weight:600; }
+    .item .actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:11px; }
+    .state-tag { font-size:.76rem; font-weight:700; padding:3px 8px; border-radius:7px; background:var(--surface-2); color:var(--text-muted); }
+    .state-tag.ok { color:var(--accent); }
+    .state-tag.off { color:var(--high); }
+    .downloads { display:flex; flex-wrap:wrap; gap:10px; margin-top:26px; padding-top:22px; border-top:1px solid var(--border); }
+    .hidden { display:none !important; }
+    .empty { color:var(--text-dim); font-style:italic; padding:8px 0; }
+    footer { color:var(--text-dim); font-size:.82rem; text-align:center; padding:30px 0; }
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <div class="brand"><span class="logo" aria-hidden="true">A</span> AccessiSlides</div>
+      <span class="pill" title="Runs entirely on your computer">🔒 Local &amp; private</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <h1>Fix PowerPoint accessibility</h1>
+    <p class="lede">Drop in a <b>.pptx</b>. Low-risk issues are fixed automatically, suggestions are staged for
+      your approval, and complex items are flagged for you. Your file and API key stay on this machine.</p>
+
+    <details class="card settings">
+      <summary>⚙️ Settings — API key (optional, enables AI suggestions)</summary>
+      <div class="body">
+        <div class="field wide">
+          <label for="apiKey">API key</label>
+          <input id="apiKey" type="password" autocomplete="off" placeholder="sk-… (leave blank to use built-in fixes only)" />
+          <span class="hint">Held in memory for this session only — never saved to disk or sent anywhere except your chosen AI provider.</span>
+        </div>
+        <div class="field">
+          <label for="provider">AI provider</label>
+          <select id="provider">
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="reviewer">Your name (for the audit trail)</label>
+          <input id="reviewer" type="text" value="reviewer" autocomplete="off" />
+        </div>
+      </div>
+    </details>
+
+    <div id="drop" class="drop" role="button" tabindex="0" aria-label="Drag a PowerPoint file here or press Enter to browse">
+      <div class="big">Drag a .pptx here</div>
+      <div class="sub">or click to browse</div>
+      <input id="fileInput" type="file" accept=".pptx" class="hidden" />
+    </div>
+
+    <div id="status" class="status-line" role="status" aria-live="polite"></div>
+
+    <section id="results" class="hidden">
+      <div class="summary-bar">
+        <span class="pill"><span class="dot low"></span> <b id="cAuto">0</b>&nbsp;auto-fixed</span>
+        <span class="pill"><span class="dot medium"></span> <b id="cPending">0</b>&nbsp;need review</span>
+        <span class="pill"><span class="dot high"></span> <b id="cFlagged">0</b>&nbsp;flagged</span>
+        <span class="spacer"></span>
+        <span id="llmTag" class="state-tag hidden"></span>
+      </div>
+      <div id="items"></div>
+      <div class="downloads">
+        <a id="dl" class="btn btn-primary" href="#">⬇︎ Download fixed .pptx</a>
+        <a id="dlXlsx" class="btn btn-ghost" href="#">Export audit (XLSX)</a>
+        <a id="dlPdf" class="btn btn-ghost" href="#">Export summary (PDF)</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">WCAG 2.1 &amp; Section 508 · full audit trail with per-item rollback · runs locally</footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let jobId = null;
+
+    const RISK = { low:'low', medium:'medium', high:'high' };
+    const drop = $('drop'), fileInput = $('fileInput');
+
+    drop.addEventListener('click', () => fileInput.click());
+    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+    fileInput.addEventListener('change', () => { if (fileInput.files[0]) analyze(fileInput.files[0]); });
+    ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
+    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+    drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) analyze(f); });
+
+    function setStatus(html, busy) {
+      $('status').innerHTML = (busy ? '<span class="spinner" aria-hidden="true"></span>' : '') + html;
+    }
+
+    async function analyze(file) {
+      if (!file.name.toLowerCase().endsWith('.pptx')) { setStatus('⚠️ Please choose a .pptx file.'); return; }
+      setStatus('Analyzing <b>' + escapeHtml(file.name) + '</b>…', true);
+      $('results').classList.add('hidden');
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('api_key', $('apiKey').value.trim());
+      fd.append('provider', $('provider').value);
+      fd.append('reviewer', $('reviewer').value.trim() || 'reviewer');
+      try {
+        const res = await fetch('/api/analyze', { method:'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Analysis failed');
+        jobId = data.job_id;
+        setStatus('✓ Analyzed <b>' + escapeHtml(data.filename) + '</b> — ' + data.items.length + ' issue(s) found.');
+        render(data);
+      } catch (err) { setStatus('⚠️ ' + escapeHtml(err.message)); }
+    }
+
+    async function act(path, body) {
+      try {
+        const res = await fetch('/api/jobs/' + jobId + path, {
+          method:'POST',
+          headers: body ? { 'Content-Type':'application/json' } : {},
+          body: body ? JSON.stringify(body) : null,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Action failed');
+        render(data);
+      } catch (err) { setStatus('⚠️ ' + escapeHtml(err.message)); }
+    }
+
+    function render(data) {
+      $('results').classList.remove('hidden');
+      $('cAuto').textContent = data.counts.auto;
+      $('cPending').textContent = data.counts.pending;
+      $('cFlagged').textContent = data.counts.flagged;
+      const tag = $('llmTag');
+      if ('llm_active' in data) {
+        tag.classList.remove('hidden');
+        tag.classList.toggle('ok', data.llm_active);
+        tag.textContent = data.llm_active ? '✨ AI suggestions on' : 'Built-in fixes only';
+      }
+      $('dl').href = '/api/jobs/' + jobId + '/download';
+      $('dlXlsx').href = '/api/jobs/' + jobId + '/export?format=xlsx';
+      $('dlPdf').href = '/api/jobs/' + jobId + '/export?format=pdf';
+
+      const order = { high:0, medium:1, low:2 };
+      const groups = { high:[], medium:[], low:[] };
+      data.items.forEach(it => (groups[it.risk_level] || (groups[it.risk_level]=[])).push(it));
+      const labels = { high:'Flagged for manual review', medium:'Needs your review', low:'Auto-fixed' };
+
+      const container = $('items');
+      container.innerHTML = '';
+      if (!data.items.length) { container.innerHTML = '<p class="empty">No accessibility issues found by the configured rules. 🎉</p>'; return; }
+      ['high','medium','low'].forEach(risk => {
+        const list = groups[risk]; if (!list || !list.length) return;
+        const h = document.createElement('div'); h.className = 'group-title'; h.textContent = labels[risk] + ' (' + list.length + ')';
+        container.appendChild(h);
+        list.forEach(it => container.appendChild(renderItem(it)));
+      });
+    }
+
+    function renderItem(it) {
+      const el = document.createElement('div');
+      el.className = 'item';
+      const draft = it.metadata && it.metadata.llm_draft;
+      el.innerHTML =
+        '<div class="risk"><span class="badge ' + it.risk_level + '">' + it.risk_level.toUpperCase() + '</span></div>' +
+        '<div class="body">' +
+          '<div class="meta">Slide ' + it.slide_number + ' · ' + escapeHtml(it.element_type) + ' · ' + escapeHtml(it.wcag_criterion) + '</div>' +
+          '<div class="desc">' + escapeHtml(it.issue_description) + '</div>' +
+          (it.suggested_fix ? '<div class="fix"><b>Suggested:</b> ' + escapeHtml(it.suggested_fix) + '</div>' : '') +
+          (draft ? '<div class="fix"><b>AI draft (for your manual use):</b> ' + escapeHtml(draft) + '</div>' : '') +
+          '<div class="actions"></div>' +
+        '</div>';
+      const actions = el.querySelector('.actions');
+      buildActions(it).forEach(node => actions.appendChild(node));
+      return el;
+    }
+
+    function stateTag(text, cls) {
+      const s = document.createElement('span'); s.className = 'state-tag ' + (cls||''); s.textContent = text; return s;
+    }
+    function button(label, cls, handler) {
+      const b = document.createElement('button'); b.className = 'btn btn-sm ' + cls; b.textContent = label;
+      b.addEventListener('click', handler); return b;
+    }
+
+    function buildActions(it) {
+      const id = it.item_id;
+      const needsReview = it.metadata && it.metadata.needs_review;
+      switch (it.status) {
+        case 'pending_approval': {
+          const out = [];
+          const approveLabel = it.suggested_fix ? 'Approve' : 'Acknowledge';
+          out.push(button(approveLabel, 'btn-approve', () => act('/items/' + id + '/approve')));
+          if (it.suggested_fix) out.push(button('Edit & approve', '', () => {
+            const t = prompt('Edit the suggested text:', it.suggested_fix);
+            if (t !== null) act('/items/' + id + '/approve', { replacement_text: t });
+          }));
+          out.push(button('Reject', 'btn-reject', () => act('/items/' + id + '/reject')));
+          return out;
+        }
+        case 'auto_applied': {
+          const out = [];
+          if (needsReview) { out.unshift(stateTag('AI-applied — confirm', '')); out.push(button('Keep', 'btn-approve', () => act('/items/' + id + '/keep'))); }
+          else out.unshift(stateTag('Auto-fixed', 'ok'));
+          out.push(button('Undo', 'btn-reject', () => act('/items/' + id + '/rollback')));
+          return out;
+        }
+        case 'approved':
+          return [stateTag('Approved ✓', 'ok'), button('Undo', 'btn-reject', () => act('/items/' + id + '/rollback'))];
+        case 'flagged_manual':
+          return [stateTag('Manual fix needed', '')];
+        case 'rejected':
+          return [stateTag('Rejected', 'off')];
+        case 'rolled_back':
+          return [stateTag('Rolled back', 'off')];
+        default:
+          return [stateTag(it.status, '')];
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+  </script>
+</body>
+</html>

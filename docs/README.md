@@ -30,7 +30,8 @@ This project addresses that gap with a practical, open-source agentic system tha
 | PPTX generation (reports/exports) | `python-pptx` + Claude Code PPTX skill |
 | Excel audit reports | `openpyxl` + Claude Code XLSX skill |
 | PDF reports | `reportlab` + Claude Code PDF skill |
-| CLI interface | `click` or `argparse` |
+| CLI interface | `click` |
+| Local web app | `FastAPI` + `uvicorn` (single static page, no build step) |
 | Testing | `pytest` |
 | Configuration | `pydantic-settings` / `.env` |
 | Logging & audit trail | `structlog` + JSON log files |
@@ -78,8 +79,14 @@ pptx_input/
 │   ├── export_xlsx.py   # Excel itemized audit report
 │   └── export_pdf.py    # PDF summary report
 │
-├── cli.py               # Entry point
+├── web/                 # Local web app (thin wrapper over the engine)
+│   ├── server.py        # FastAPI endpoints: analyze / approve / rollback / download / export
+│   ├── jobs.py          # In-memory per-upload job store (temp work dir + live deck + ledger)
+│   └── static/index.html# Single self-contained browser page (no build step)
+│
+├── cli.py               # Entry point (check | fix | report | rollback | export | serve)
 ├── config.py            # Settings and thresholds
+├── Start-AccessiSlides.command / .bat  # Double-click launchers for the web app
 └── tests/               # pytest test suite
 ```
 
@@ -163,7 +170,8 @@ Any applied fix can be independently rolled back without affecting other fixes:
 
 ## Out of Scope (Current Phase)
 
-- Web UI or browser-based interface *(planned for a future phase)*
+- Hosted / multi-user web service, accounts, or authentication *(future)* — the included
+  web app is **local and single-user** (see "Run the app" below)
 - Batch processing of multiple files simultaneously *(future)*
 - Cloud storage integration *(future)*
 - Email notifications or team collaboration workflows *(future)*
@@ -180,7 +188,7 @@ Any applied fix can be independently rolled back without affecting other fixes:
 | Phase 3 — Interactive Report | 🔄 In Progress | CLI report, approve/reject/rollback flow |
 | Phase 4 — Export Reports | 🔜 Next | XLSX itemized report, PDF summary |
 | Phase 5 — Beta Testing | 🔜 Planned | Real-world testing with partner institutions |
-| Phase 6 — UI Layer | ⏳ Future | Web-based interactive interface |
+| Phase 6 — UI Layer | ✅ Prototyped | Local web app (drag-drop, approve, download) via `cli.py serve` |
 
 ---
 
@@ -278,7 +286,30 @@ deterministic pipeline — a misconfiguration can never break a run. When active
 
 ---
 
-## Usage
+## Run the app (no terminal)
+
+For non-technical users, AccessiSlides ships a **local web app** — no commands to memorize:
+
+1. **Double-click the launcher** in the project folder:
+   - macOS: `Start-AccessiSlides.command`
+   - Windows: `Start-AccessiSlides.bat`
+
+   (Or run `uv run python cli.py serve` yourself.) Your browser opens to
+   `http://127.0.0.1:8765`.
+2. **(Optional) Open Settings** and paste an API key to enable AI-written suggestions.
+   The key is held in memory for the session only — never written to disk.
+3. **Drag a `.pptx`** onto the page (or click to browse). Low-risk issues are fixed
+   automatically, suggestions are staged for your **Approve / Edit / Reject** review,
+   and complex items are flagged for you.
+4. **Download the fixed `.pptx`**, and optionally export the XLSX audit or PDF summary.
+
+Everything runs on your computer — your slides and API key never leave the machine. The web
+app is a thin wrapper (`web/`) over the same engine the CLI uses, so both produce the same
+ledger format and remediated output.
+
+---
+
+## Usage (CLI)
 
 All commands are run through `cli.py`. Use `uv run` so the right environment is always used,
 and pass `-h` / `--help` to any command for its full option list.
@@ -339,6 +370,21 @@ uv run python cli.py rollback \
 uv run python cli.py export --ledger audit/ledger.json --format xlsx --output audit_report.xlsx
 uv run python cli.py export --ledger audit/ledger.json --format pdf  --output summary.pdf
 ```
+
+### `serve` — launch the local web app
+
+Starts the browser UI (see **Run the app** above) — the graphical, no-terminal way to run the
+whole check → approve → download flow. Handy for non-technical users.
+
+```bash
+uv run python cli.py serve                       # opens http://127.0.0.1:8765
+uv run python cli.py serve --port 9000            # use a different port
+uv run python cli.py serve --no-browser           # start the server without opening a browser
+```
+
+The server is **local and single-user**: it binds to `127.0.0.1`, keeps each upload in a
+temporary work directory, and holds the API key in memory only. It never writes your slides or
+key outside that temp directory, and makes no request except (optionally) to your chosen AI provider.
 
 ### A typical end-to-end run
 

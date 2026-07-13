@@ -126,6 +126,25 @@ def rollback_command(ledger_path: Path, item_id: str, pptx_path: Path, output_pa
     click.echo(f"Saved rollback PPTX: {result}")
 
 
+@cli.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Interface to bind (local only by default).")
+@click.option("--port", default=8765, show_default=True, type=int)
+@click.option("--no-browser", is_flag=True, help="Do not open a browser automatically.")
+def serve_command(host: str, port: int, no_browser: bool) -> None:
+    """Launch the local web app (drag-drop, approve, download in the browser)."""
+    import uvicorn
+
+    url = f"http://{host}:{port}"
+    click.echo(f"AccessiSlides is running at {url}")
+    click.echo("Leave this window open. Press Ctrl+C to stop.")
+    if not no_browser:
+        import threading
+        import webbrowser
+
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    uvicorn.run("web.server:app", host=host, port=port, log_level="warning")
+
+
 @cli.command("export")
 @click.option("--ledger", "ledger_path", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--format", "export_format", required=True, type=click.Choice(["xlsx", "pdf"]))
