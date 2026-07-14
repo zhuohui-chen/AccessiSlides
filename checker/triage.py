@@ -16,6 +16,9 @@ MEDIUM_RISK_RULES = {
     "weak_slide_title",
     "reading_order_review",
     "llm_semantic_review",
+    "low_contrast_text",
+    "low_contrast_over_image",
+    "low_contrast_over_gradient",
 }
 HIGH_RISK_RULES = {
     "chart_requires_manual_alt_text",

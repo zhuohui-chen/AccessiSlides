@@ -41,27 +41,108 @@ LOGGER = get_logger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+SUPPORTED_PROVIDERS = {"anthropic", "openai"}
+
+# A tiny, cheap round-trip used to validate the API key, model id, and network
+# before the real analysis runs, so provider errors surface as a popup instead
+# of being silently swallowed by the deterministic fallback.
+_PREFLIGHT_SYSTEM = "You are a connectivity check. Reply with a single word."
+_PREFLIGHT_PROMPT = "Reply with the word OK."
+
+
 class ApproveBody(BaseModel):
     """Optional replacement text supplied when approving a suggestion."""
 
     replacement_text: str | None = None
 
 
-def _build_settings(api_key: str, provider: str) -> Settings:
-    """Build settings for one analysis run, enabling the LLM only with a key.
+def _truthy(value: str) -> bool:
+    """Interpret a form string as a boolean flag."""
+    return value.strip().lower() in {"1", "true", "on", "yes"}
 
-    The API key is used in-memory for this request only and is never written to
-    disk. With no key (or an unknown provider) the deterministic pipeline runs.
+
+def _provider_key(settings: Settings, provider: str) -> str:
+    """Return the effective API key a provider will use from ``settings``."""
+    if provider == "anthropic":
+        return settings.anthropic_api_key or ""
+    if provider == "openai":
+        return settings.openai_api_key or ""
+    return ""
+
+
+def _build_settings(
+    *, use_llm: bool, api_key: str, provider: str, model: str, use_saved_key: bool
+) -> Settings:
+    """Build settings for one analysis run from the explicit LLM controls.
+
+    When ``use_llm`` is false the deterministic pipeline runs regardless of the
+    other fields. A non-empty ``model`` overrides the provider's default.
+
+    Key handling:
+        * ``use_saved_key`` true — the API key is left unset here so
+          ``pydantic-settings`` loads it from the environment / ``.env`` file.
+        * ``use_saved_key`` false — the form's ``api_key`` is used for this
+          request only and is never written to disk (an empty value overrides
+          any saved key, so "AI on, no key" fails fast with a clear error).
     """
+    if not use_llm:
+        return Settings(llm_enabled=False)
     normalized = (provider or "").strip().lower()
-    if api_key and normalized in {"anthropic", "openai"}:
-        overrides: dict[str, Any] = {"llm_enabled": True, "llm_provider": normalized}
-        if normalized == "anthropic":
+    overrides: dict[str, Any] = {"llm_enabled": True, "llm_provider": normalized}
+    chosen_model = (model or "").strip()
+    if normalized == "anthropic":
+        if not use_saved_key:
             overrides["anthropic_api_key"] = api_key
-        else:
+        if chosen_model:
+            overrides["anthropic_model"] = chosen_model
+    elif normalized == "openai":
+        if not use_saved_key:
             overrides["openai_api_key"] = api_key
-        return Settings(**overrides)
-    return Settings(llm_enabled=False)
+        if chosen_model:
+            overrides["openai_model"] = chosen_model
+    return Settings(**overrides)
+
+
+def _init_llm_provider(settings: Settings):
+    """Build and preflight the LLM provider, raising HTTP errors for the frontend.
+
+    Every failure mode the user can cause — bad provider, missing key, missing
+    SDK, wrong model, auth/network error — is turned into an ``HTTPException`` so
+    the browser can show a clear popup instead of silently falling back to the
+    deterministic pipeline. The provider and effective key are read from
+    ``settings`` (the key may have come from the form or from ``.env``).
+    """
+    normalized = (settings.llm_provider or "").strip().lower()
+    if normalized not in SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose a supported AI provider (Anthropic or OpenAI), or turn AI off.",
+        )
+    if not _provider_key(settings, normalized).strip():
+        raise HTTPException(
+            status_code=400,
+            detail="An API key is required when AI is enabled. Enter your key or turn AI off.",
+        )
+
+    from llm.factory import get_provider
+
+    llm_provider = get_provider(settings)
+    if llm_provider is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not initialize the {normalized} provider. Make sure its SDK is "
+                f"installed (run `uv add {normalized}`) and the API key is valid."
+            ),
+        )
+    try:
+        llm_provider.generate_text(system=_PREFLIGHT_SYSTEM, prompt=_PREFLIGHT_PROMPT)
+    except Exception as exc:  # auth, unknown model, rate limit, network, etc.
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI provider error while contacting {normalized}: {exc}",
+        ) from exc
+    return llm_provider
 
 
 def _ledger_payload(job: Job) -> dict[str, Any]:
@@ -117,11 +198,33 @@ def create_app(store: JobStore | None = None) -> FastAPI:
         """Serve the single-page frontend."""
         return HTMLResponse((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
 
+    @app.get("/api/env")
+    def env_status() -> JSONResponse:
+        """Report which providers have a saved API key, without leaking it.
+
+        The frontend uses this to offer "use the saved ``.env`` key" as an
+        option. Only booleans and the configured default provider are returned;
+        the key value itself never leaves the server.
+        """
+        env_settings = Settings()
+        return JSONResponse(
+            {
+                "saved_keys": {
+                    "anthropic": bool((env_settings.anthropic_api_key or "").strip()),
+                    "openai": bool((env_settings.openai_api_key or "").strip()),
+                },
+                "provider": (env_settings.llm_provider or "anthropic").strip().lower(),
+            }
+        )
+
     @app.post("/api/analyze")
     async def analyze(
         file: UploadFile = File(...),
         api_key: str = Form(""),
         provider: str = Form("anthropic"),
+        model: str = Form(""),
+        use_llm: str = Form("false"),
+        use_saved_key: str = Form("false"),
         reviewer: str = Form("reviewer"),
     ) -> JSONResponse:
         """Check and remediate an uploaded ``.pptx``, returning the ledger.
@@ -133,7 +236,20 @@ def create_app(store: JobStore | None = None) -> FastAPI:
         if not filename.lower().endswith(".pptx"):
             raise HTTPException(status_code=400, detail="Please upload a .pptx file.")
 
-        settings = _build_settings(api_key, provider)
+        settings = _build_settings(
+            use_llm=_truthy(use_llm),
+            api_key=api_key,
+            provider=provider,
+            model=model,
+            use_saved_key=_truthy(use_saved_key),
+        )
+
+        # Validate and preflight the AI provider before touching the upload, so a
+        # bad key or model raises a clean popup and never leaves a stray job.
+        llm_provider = None
+        if settings.llm_enabled:
+            llm_provider = _init_llm_provider(settings)
+
         job = job_store_ref().new_job(original_filename=filename, reviewer=reviewer or "reviewer")
         job.input_path.write_bytes(await file.read())
 
@@ -142,12 +258,6 @@ def create_app(store: JobStore | None = None) -> FastAPI:
         except Exception as exc:  # corrupt/unreadable upload
             job_store_ref().remove(job.job_id)
             raise HTTPException(status_code=400, detail=f"Could not read presentation: {exc}") from exc
-
-        llm_provider = None
-        if settings.llm_enabled:
-            from llm.factory import get_provider
-
-            llm_provider = get_provider(settings)
 
         findings = run_checks_on_presentation(prs, settings, provider=llm_provider)
         for finding in findings:

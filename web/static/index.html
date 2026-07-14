@@ -61,12 +61,11 @@
 
     .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); }
     .settings { margin-bottom:20px; overflow:hidden; }
-    .settings summary {
-      list-style:none; cursor:pointer; padding:15px 20px; display:flex; align-items:center;
-      justify-content:space-between; font-weight:600;
+    .settings-head {
+      padding:15px 20px; display:flex; align-items:center; justify-content:space-between;
+      gap:12px; border-bottom:1px solid var(--border);
     }
-    .settings summary::-webkit-details-marker { display:none; }
-    .settings[open] summary { border-bottom:1px solid var(--border); }
+    .settings-title { font-weight:700; font-size:1rem; letter-spacing:-.01em; }
     .settings .body { padding:18px 20px; display:grid; gap:16px; grid-template-columns:1fr 1fr; }
     .field { display:flex; flex-direction:column; gap:6px; }
     .field.wide { grid-column:1 / -1; }
@@ -76,6 +75,46 @@
       background:var(--bg-soft); color:var(--text); font-size:.92rem; font-family:inherit;
     }
     .hint { font-size:.78rem; color:var(--text-dim); }
+
+    .toggle { display:flex; align-items:center; gap:10px; cursor:pointer; color:var(--text); font-size:.95rem; font-weight:600; }
+    .toggle input { width:18px; height:18px; accent-color:var(--brand); cursor:pointer; }
+    .llm-fields { grid-column:1 / -1; display:grid; gap:16px; grid-template-columns:1fr 1fr; transition:opacity .15s; }
+    .llm-fields.is-off { opacity:.5; }
+    input:disabled, select:disabled { cursor:not-allowed; opacity:.7; }
+
+    .env-note {
+      margin-top:8px; padding:9px 12px; border-radius:9px; font-size:.82rem;
+      background:rgba(110,168,254,.10); border:1px solid rgba(110,168,254,.35); color:var(--text-muted);
+    }
+    .env-note b { color:var(--text); }
+    .key-source { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:2px; }
+    .radio { display:inline-flex; align-items:center; gap:7px; font-weight:600; color:var(--text); font-size:.88rem; cursor:pointer; }
+    .radio input { width:16px; height:16px; accent-color:var(--brand); cursor:pointer; }
+    .radio input:disabled { cursor:not-allowed; }
+    .radio.is-off { opacity:.45; cursor:not-allowed; }
+
+    .confirm-row { flex-direction:row; align-items:center; gap:14px; flex-wrap:wrap; }
+    .confirm-summary { font-size:.85rem; color:var(--text-muted); }
+    .confirm-summary.ai-on b { color:var(--brand); }
+    .confirm-summary.ai-off b { color:var(--accent); }
+
+    .drop.locked { opacity:.55; }
+    .drop.locked:hover { border-color:var(--border); background:var(--bg-soft); }
+
+    .modal-overlay {
+      position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px;
+      background:rgba(4,7,16,.66); backdrop-filter:blur(3px);
+    }
+    .modal {
+      max-width:460px; width:100%; padding:22px 24px 20px; box-shadow:0 30px 70px -20px rgba(0,0,0,.85);
+      animation:pop .16s ease-out;
+    }
+    @keyframes pop { from { transform:translateY(8px) scale(.98); opacity:0; } to { transform:none; opacity:1; } }
+    .modal-head { display:flex; align-items:center; gap:11px; margin-bottom:10px; }
+    .modal-icon { font-size:1.5rem; }
+    .modal-head h2 { font-size:1.15rem; margin:0; letter-spacing:-.01em; }
+    .modal-body { color:var(--text-muted); margin:0 0 20px; white-space:pre-wrap; word-break:break-word; }
+    .modal-actions { display:flex; justify-content:flex-end; }
 
     .drop {
       border:2px dashed var(--border); border-radius:var(--radius); background:var(--bg-soft);
@@ -135,31 +174,67 @@
     <p class="lede">Drop in a <b>.pptx</b>. Low-risk issues are fixed automatically, suggestions are staged for
       your approval, and complex items are flagged for you. Your file and API key stay on this machine.</p>
 
-    <details class="card settings">
-      <summary>⚙️ Settings — API key (optional, enables AI suggestions)</summary>
+    <section class="card settings" aria-labelledby="setHead">
+      <div class="settings-head">
+        <div>
+          <div id="setHead" class="settings-title">⚙️ Settings</div>
+          <span class="hint">Review these, then confirm before uploading. AI is optional and off by default.</span>
+        </div>
+        <span id="confirmState" class="state-tag off" role="status" aria-live="polite">Not confirmed</span>
+      </div>
       <div class="body">
         <div class="field wide">
-          <label for="apiKey">API key</label>
-          <input id="apiKey" type="password" autocomplete="off" placeholder="sk-… (leave blank to use built-in fixes only)" />
-          <span class="hint">Held in memory for this session only — never saved to disk or sent anywhere except your chosen AI provider.</span>
+          <label class="toggle" for="useLlm">
+            <input id="useLlm" type="checkbox" />
+            <span>Use AI (LLM) suggestions</span>
+          </label>
+          <span class="hint">Off by default. When off, only the built-in deterministic fixes run — no API key needed and nothing leaves this machine.</span>
+          <div id="envNote" class="env-note hidden"></div>
         </div>
-        <div class="field">
-          <label for="provider">AI provider</label>
-          <select id="provider">
-            <option value="anthropic">Anthropic (Claude)</option>
-            <option value="openai">OpenAI</option>
-          </select>
+        <div id="llmFields" class="llm-fields is-off">
+          <div class="field">
+            <label for="provider">AI provider</label>
+            <select id="provider" disabled>
+              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="model">Model</label>
+            <input id="model" type="text" list="modelList" autocomplete="off" disabled />
+            <datalist id="modelList"></datalist>
+            <span class="hint">Leave as-is for the recommended default, or type any model id your key can access.</span>
+          </div>
+          <div class="field wide">
+            <label>API key</label>
+            <div class="key-source">
+              <label class="radio is-off" id="keySavedWrap">
+                <input type="radio" name="keysrc" id="keySaved" value="saved" disabled />
+                <span id="keySavedLabel">Use saved key from .env</span>
+              </label>
+              <label class="radio" id="keyNewWrap">
+                <input type="radio" name="keysrc" id="keyNew" value="new" checked disabled />
+                <span>Enter a new key</span>
+              </label>
+            </div>
+            <input id="apiKey" type="password" autocomplete="off" placeholder="sk-… " disabled />
+            <span class="hint">Held in memory for this session only — never saved to disk or sent anywhere except your chosen AI provider.</span>
+          </div>
         </div>
         <div class="field">
           <label for="reviewer">Your name (for the audit trail)</label>
           <input id="reviewer" type="text" value="reviewer" autocomplete="off" />
         </div>
+        <div class="field wide confirm-row">
+          <button id="confirmBtn" class="btn btn-primary" type="button">Confirm settings</button>
+          <span id="confirmSummary" class="confirm-summary"></span>
+        </div>
       </div>
-    </details>
+    </section>
 
-    <div id="drop" class="drop" role="button" tabindex="0" aria-label="Drag a PowerPoint file here or press Enter to browse">
+    <div id="drop" class="drop locked" role="button" tabindex="0" aria-label="Drag a PowerPoint file here or press Enter to browse">
       <div class="big">Drag a .pptx here</div>
-      <div class="sub">or click to browse</div>
+      <div id="dropSub" class="sub">Confirm your settings above to enable upload</div>
       <input id="fileInput" type="file" accept=".pptx" class="hidden" />
     </div>
 
@@ -182,6 +257,19 @@
     </section>
   </main>
 
+  <div id="modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalBody">
+    <div class="modal card">
+      <div class="modal-head">
+        <span id="modalIcon" class="modal-icon" aria-hidden="true">⚠️</span>
+        <h2 id="modalTitle">Something went wrong</h2>
+      </div>
+      <p id="modalBody" class="modal-body"></p>
+      <div class="modal-actions">
+        <button id="modalClose" class="btn btn-primary" type="button">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="wrap">WCAG 2.1 &amp; Section 508 · full audit trail with per-item rollback · runs locally</footer>
 
   <script>
@@ -191,34 +279,179 @@
     const RISK = { low:'low', medium:'medium', high:'high' };
     const drop = $('drop'), fileInput = $('fileInput');
 
-    drop.addEventListener('click', () => fileInput.click());
-    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+    // ---- Error popup ------------------------------------------------------
+    function showError(title, message) {
+      $('modalTitle').textContent = title || 'Something went wrong';
+      $('modalBody').textContent = message || 'An unexpected error occurred. Please try again.';
+      $('modal').classList.remove('hidden');
+      $('modalClose').focus();
+    }
+    function closeModal() { $('modal').classList.add('hidden'); }
+    $('modalClose').addEventListener('click', closeModal);
+    $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('modal').classList.contains('hidden')) closeModal(); });
+
+    // ---- LLM settings + confirmation gate --------------------------------
+    const MODEL_DEFAULTS = {
+      anthropic: { default: 'claude-opus-4-8', options: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'], placeholder: 'sk-ant-…', label: 'Anthropic (Claude)' },
+      openai:    { default: 'gpt-4o-mini',     options: ['gpt-4o-mini', 'gpt-4o', 'o4-mini'], placeholder: 'sk-…', label: 'OpenAI' },
+    };
+    const useLlm = $('useLlm'), provider = $('provider'), modelInput = $('model'), apiKey = $('apiKey');
+    const keySaved = $('keySaved'), keyNew = $('keyNew');
+    let savedKeys = { anthropic: false, openai: false };
+    let confirmed = false;
+
+    function hasSavedKey() { return !!savedKeys[provider.value]; }
+    function usingSavedKey() { return useLlm.checked && keySaved.checked && hasSavedKey(); }
+
+    function syncLlmFields() {
+      const on = useLlm.checked;
+      $('llmFields').classList.toggle('is-off', !on);
+      provider.disabled = !on;
+      modelInput.disabled = !on;
+      // The "saved key" choice is only available when .env has a key for this provider.
+      const savedAvailable = on && hasSavedKey();
+      keySaved.disabled = !savedAvailable;
+      $('keySavedWrap').classList.toggle('is-off', !savedAvailable);
+      if (!savedAvailable && keySaved.checked) keyNew.checked = true;
+      keyNew.disabled = !on;
+      // The key input applies only when the user opts to enter a new key.
+      apiKey.disabled = !(on && keyNew.checked);
+    }
+
+    function updateEnvNote() {
+      const names = Object.keys(savedKeys).filter(p => savedKeys[p]).map(p => MODEL_DEFAULTS[p].label);
+      const note = $('envNote');
+      if (names.length) {
+        note.classList.remove('hidden');
+        note.innerHTML = '🔑 A saved API key was detected in <b>.env</b> for: <b>' + escapeHtml(names.join(', ')) +
+          '</b>. Turn on AI to use it, or choose “Enter a new key”.';
+      } else {
+        note.classList.add('hidden');
+      }
+      $('keySavedLabel').textContent = hasSavedKey()
+        ? 'Use saved key from .env (detected)'
+        : 'Use saved key from .env (none found)';
+    }
+
+    function applyProviderDefaults(resetModel) {
+      const cfg = MODEL_DEFAULTS[provider.value] || MODEL_DEFAULTS.anthropic;
+      apiKey.placeholder = cfg.placeholder;
+      $('modelList').innerHTML = cfg.options.map(m => '<option value="' + m + '"></option>').join('');
+      if (resetModel || !modelInput.value.trim()) modelInput.value = cfg.default;
+      // Prefer the saved key when one exists for the selected provider.
+      if (useLlm.checked && hasSavedKey()) keySaved.checked = true;
+      updateEnvNote();
+    }
+
+    function setConfirmed(ok) {
+      confirmed = ok;
+      const tag = $('confirmState');
+      tag.textContent = ok ? 'Confirmed ✓' : 'Not confirmed';
+      tag.classList.toggle('ok', ok);
+      tag.classList.toggle('off', !ok);
+      drop.classList.toggle('locked', !ok);
+      $('dropSub').textContent = ok ? 'or click to browse' : 'Confirm your settings above to enable upload';
+      if (!ok) $('confirmSummary').textContent = '';
+    }
+    function invalidateConfirm() { if (confirmed) setConfirmed(false); }
+    function requireConfirmed() {
+      if (confirmed) return true;
+      showError('Confirm settings first', 'Please review the settings above and press “Confirm settings” before uploading.');
+      return false;
+    }
+
+    function confirmSettings() {
+      if (useLlm.checked) {
+        if (!(provider.value in MODEL_DEFAULTS)) {
+          return showError('Choose a provider', 'Select a supported AI provider, or turn AI off.');
+        }
+        if (!usingSavedKey() && !apiKey.value.trim()) {
+          return showError('API key required',
+            'AI is on and “Enter a new key” is selected, but the key is empty. Enter your key, choose the saved .env key, or turn AI off.');
+        }
+      }
+      const s = $('confirmSummary');
+      if (!useLlm.checked) {
+        s.className = 'confirm-summary ai-off';
+        s.innerHTML = '<b>AI is OFF</b> — only built-in deterministic fixes will run. No API key is used and nothing leaves this machine.';
+      } else {
+        const label = MODEL_DEFAULTS[provider.value].label;
+        const model = modelInput.value.trim() || MODEL_DEFAULTS[provider.value].default;
+        const src = usingSavedKey() ? 'the saved key from <b>.env</b>' : 'the key you entered (held in memory only)';
+        s.className = 'confirm-summary ai-on';
+        s.innerHTML = '<b>AI is ON</b> — ' + escapeHtml(label) + ' · ' + escapeHtml(model) + ', using ' + src + '.';
+      }
+      setConfirmed(true);
+    }
+
+    // Any change to the AI settings re-requires an explicit confirmation.
+    [useLlm, provider, modelInput, apiKey, keySaved, keyNew].forEach(el => {
+      el.addEventListener('change', invalidateConfirm);
+      el.addEventListener('input', invalidateConfirm);
+    });
+    useLlm.addEventListener('change', syncLlmFields);
+    provider.addEventListener('change', () => { applyProviderDefaults(true); syncLlmFields(); });
+    [keySaved, keyNew].forEach(r => r.addEventListener('change', syncLlmFields));
+    $('confirmBtn').addEventListener('click', confirmSettings);
+
+    async function loadEnv() {
+      try {
+        const res = await fetch('/api/env');
+        if (res.ok) {
+          const data = await res.json();
+          savedKeys = data.saved_keys || savedKeys;
+          if (data.provider && data.provider in MODEL_DEFAULTS) provider.value = data.provider;
+        }
+      } catch (_) { /* env detection is best-effort; fall back to no saved keys */ }
+      applyProviderDefaults(true);
+      syncLlmFields();
+    }
+
+    applyProviderDefaults(true);
+    syncLlmFields();
+    loadEnv();
+
+    drop.addEventListener('click', () => { if (requireConfirmed()) fileInput.click(); });
+    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (requireConfirmed()) fileInput.click(); } });
     fileInput.addEventListener('change', () => { if (fileInput.files[0]) analyze(fileInput.files[0]); });
     ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
     ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
-    drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) analyze(f); });
+    drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f && requireConfirmed()) analyze(f); });
 
     function setStatus(html, busy) {
       $('status').innerHTML = (busy ? '<span class="spinner" aria-hidden="true"></span>' : '') + html;
     }
 
     async function analyze(file) {
-      if (!file.name.toLowerCase().endsWith('.pptx')) { setStatus('⚠️ Please choose a .pptx file.'); return; }
+      if (!file.name.toLowerCase().endsWith('.pptx')) {
+        setStatus('');
+        showError('Unsupported file', 'Please choose a PowerPoint (.pptx) file.');
+        return;
+      }
+      if (!requireConfirmed()) return;
+      const savedKey = usingSavedKey();
       setStatus('Analyzing <b>' + escapeHtml(file.name) + '</b>…', true);
       $('results').classList.add('hidden');
       const fd = new FormData();
       fd.append('file', file);
-      fd.append('api_key', $('apiKey').value.trim());
-      fd.append('provider', $('provider').value);
+      fd.append('use_llm', useLlm.checked ? 'true' : 'false');
+      fd.append('use_saved_key', savedKey ? 'true' : 'false');
+      fd.append('api_key', savedKey ? '' : apiKey.value.trim());
+      fd.append('provider', provider.value);
+      fd.append('model', modelInput.value.trim());
       fd.append('reviewer', $('reviewer').value.trim() || 'reviewer');
       try {
         const res = await fetch('/api/analyze', { method:'POST', body: fd });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Analysis failed');
+        const data = await parseJson(res);
+        if (!res.ok) throw new ApiError(res.status, data.detail);
         jobId = data.job_id;
         setStatus('✓ Analyzed <b>' + escapeHtml(data.filename) + '</b> — ' + data.items.length + ' issue(s) found.');
         render(data);
-      } catch (err) { setStatus('⚠️ ' + escapeHtml(err.message)); }
+      } catch (err) {
+        setStatus('');
+        reportError(err, 'Could not analyze the presentation');
+      }
     }
 
     async function act(path, body) {
@@ -228,10 +461,51 @@
           headers: body ? { 'Content-Type':'application/json' } : {},
           body: body ? JSON.stringify(body) : null,
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Action failed');
+        const data = await parseJson(res);
+        if (!res.ok) throw new ApiError(res.status, data.detail);
         render(data);
-      } catch (err) { setStatus('⚠️ ' + escapeHtml(err.message)); }
+      } catch (err) {
+        reportError(err, 'Could not complete that action');
+      }
+    }
+
+    // ---- Fetch/error helpers ---------------------------------------------
+    class ApiError extends Error {
+      constructor(status, detail) { super(detail || 'Request failed'); this.status = status; }
+    }
+    async function parseJson(res) {
+      try { return await res.json(); }
+      catch (_) { return {}; }
+    }
+    async function downloadFile(url) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new ApiError(res.status, (await parseJson(res)).detail);
+        const blob = await res.blob();
+        const disposition = res.headers.get('Content-Disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        const name = match ? match[1] : url.split('/').pop().split('?')[0];
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = href; a.download = name; document.body.appendChild(a); a.click();
+        a.remove(); URL.revokeObjectURL(href);
+      } catch (err) {
+        reportError(err, 'Could not prepare the download');
+      }
+    }
+    function reportError(err, fallbackTitle) {
+      if (err instanceof ApiError) {
+        const status = err.status;
+        let title = fallbackTitle;
+        if (status === 400) title = 'Invalid request';
+        else if (status === 404) title = 'Not found';
+        else if (status === 409) title = 'Action not allowed';
+        else if (status === 502) title = 'AI provider error';
+        else if (status >= 500) title = 'Server error';
+        showError(title, err.message);
+      } else {
+        showError('Connection problem', 'Could not reach the AccessiSlides server. Check that it is still running, then try again.');
+      }
     }
 
     function render(data) {
@@ -245,9 +519,9 @@
         tag.classList.toggle('ok', data.llm_active);
         tag.textContent = data.llm_active ? '✨ AI suggestions on' : 'Built-in fixes only';
       }
-      $('dl').href = '/api/jobs/' + jobId + '/download';
-      $('dlXlsx').href = '/api/jobs/' + jobId + '/export?format=xlsx';
-      $('dlPdf').href = '/api/jobs/' + jobId + '/export?format=pdf';
+      $('dl').onclick = (e) => { e.preventDefault(); downloadFile('/api/jobs/' + jobId + '/download'); };
+      $('dlXlsx').onclick = (e) => { e.preventDefault(); downloadFile('/api/jobs/' + jobId + '/export?format=xlsx'); };
+      $('dlPdf').onclick = (e) => { e.preventDefault(); downloadFile('/api/jobs/' + jobId + '/export?format=pdf'); };
 
       const order = { high:0, medium:1, low:2 };
       const groups = { high:[], medium:[], low:[] };

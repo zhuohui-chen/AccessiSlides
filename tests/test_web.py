@@ -122,3 +122,126 @@ def test_unknown_job_is_404(tmp_path: Path) -> None:
     """Operations on an unknown job return 404."""
     res = _client(tmp_path).get("/api/jobs/nope/ledger")
     assert res.status_code == 404
+
+
+def _analyze_with(client: TestClient, pptx_path: Path, data: dict):
+    """POST /api/analyze with explicit form fields, returning the raw response."""
+    with pptx_path.open("rb") as handle:
+        return client.post(
+            "/api/analyze",
+            files={"file": ("deck.pptx", handle, "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+            data=data,
+        )
+
+
+def test_llm_enabled_without_key_is_400(tmp_path: Path) -> None:
+    """Turning AI on without an API key yields a clear error (popup on the client)."""
+    client = _client(tmp_path)
+    res = _analyze_with(client, _build_deck(tmp_path), {"use_llm": "true", "api_key": "", "provider": "anthropic"})
+    assert res.status_code == 400
+    assert "API key" in res.json()["detail"]
+
+
+def test_llm_enabled_unknown_provider_is_400(tmp_path: Path) -> None:
+    """An unsupported provider is rejected before any analysis runs."""
+    client = _client(tmp_path)
+    res = _analyze_with(client, _build_deck(tmp_path), {"use_llm": "true", "api_key": "x", "provider": "acme"})
+    assert res.status_code == 400
+    assert "provider" in res.json()["detail"].lower()
+
+
+def test_llm_provider_error_is_502(tmp_path: Path, monkeypatch) -> None:
+    """A provider/auth/model failure during preflight surfaces as a 502 error."""
+
+    class BoomProvider:
+        name = "anthropic:bad-model"
+
+        def generate_text(self, *, system: str, prompt: str) -> str:
+            raise RuntimeError("401 invalid api key")
+
+        def describe_image(self, **_: object) -> str:  # pragma: no cover - unused
+            return ""
+
+    monkeypatch.setattr("llm.factory.get_provider", lambda settings: BoomProvider())
+    client = _client(tmp_path)
+    res = _analyze_with(
+        client, _build_deck(tmp_path),
+        {"use_llm": "true", "api_key": "x", "provider": "anthropic", "model": "bad-model"},
+    )
+    assert res.status_code == 502
+    assert "invalid api key" in res.json()["detail"]
+
+
+def test_llm_disabled_ignores_key_and_model(tmp_path: Path) -> None:
+    """With AI off, the deterministic pipeline runs even if a key/model are sent."""
+    client = _client(tmp_path)
+    res = _analyze_with(
+        client, _build_deck(tmp_path),
+        {"use_llm": "false", "api_key": "x", "provider": "anthropic", "model": "whatever"},
+    )
+    assert res.status_code == 200
+    assert res.json()["llm_active"] is False
+
+
+def test_env_status_reports_saved_keys_without_leaking(tmp_path: Path, monkeypatch) -> None:
+    """The env endpoint flags a saved key by boolean and never returns the value."""
+    monkeypatch.setenv("PPTXA_ANTHROPIC_API_KEY", "env-secret-value")
+    res = _client(tmp_path).get("/api/env")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["saved_keys"]["anthropic"] is True
+    assert "openai" in body["saved_keys"]
+    assert "provider" in body
+    assert "env-secret-value" not in res.text
+
+
+def test_saved_key_uses_env_key(tmp_path: Path, monkeypatch) -> None:
+    """With use_saved_key on, the provider is built from the .env key, not the form."""
+    monkeypatch.setenv("PPTXA_ANTHROPIC_API_KEY", "env-secret-value")
+
+    class OkProvider:
+        name = "anthropic:claude"
+
+        def generate_text(self, *, system: str, prompt: str) -> str:
+            return "OK"
+
+        def describe_image(self, **_: object) -> str:  # pragma: no cover - unused
+            return ""
+
+    captured: dict[str, object] = {}
+
+    def fake_get_provider(settings):
+        captured["key"] = settings.anthropic_api_key
+        return OkProvider()
+
+    monkeypatch.setattr("llm.factory.get_provider", fake_get_provider)
+    client = _client(tmp_path)
+    res = _analyze_with(
+        client, _build_deck(tmp_path),
+        {"use_llm": "true", "use_saved_key": "true", "provider": "anthropic", "api_key": ""},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["llm_active"] is True
+    assert captured["key"] == "env-secret-value"
+
+
+def test_saved_key_missing_is_400(tmp_path: Path, monkeypatch) -> None:
+    """Asking to use a saved key that is not set yields a clear API-key error."""
+    monkeypatch.setenv("PPTXA_ANTHROPIC_API_KEY", "")
+    client = _client(tmp_path)
+    res = _analyze_with(
+        client, _build_deck(tmp_path),
+        {"use_llm": "true", "use_saved_key": "true", "provider": "anthropic", "api_key": ""},
+    )
+    assert res.status_code == 400
+    assert "API key" in res.json()["detail"]
+
+
+def test_bad_pptx_returns_document_error(tmp_path: Path) -> None:
+    """An unreadable .pptx yields a 400 the client shows as a document-error popup."""
+    bad = tmp_path / "broken.pptx"
+    bad.write_bytes(b"not a real pptx")
+    client = _client(tmp_path)
+    res = _analyze_with(client, bad, {"use_llm": "false"})
+    assert res.status_code == 400
+    assert "Could not read presentation" in res.json()["detail"]

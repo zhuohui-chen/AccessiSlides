@@ -8,11 +8,27 @@ from typing import Any
 from pptx import Presentation
 
 from checker import triage
-from checker.rules import alt_text, complex_objects, generic_links, metadata, missing_title
+from checker.rules import (
+    alt_text,
+    complex_objects,
+    contrast,
+    contrast_image,
+    generic_links,
+    metadata,
+    missing_title,
+)
 from config import Settings
 from models import Finding
 
-RULE_MODULES = (metadata, missing_title, generic_links, alt_text, complex_objects)
+RULE_MODULES = (
+    metadata,
+    missing_title,
+    generic_links,
+    alt_text,
+    complex_objects,
+    contrast,
+    contrast_image,
+)
 
 
 def run_checks_on_presentation(
