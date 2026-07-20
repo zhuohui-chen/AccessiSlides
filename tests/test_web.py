@@ -245,3 +245,100 @@ def test_bad_pptx_returns_document_error(tmp_path: Path) -> None:
     res = _analyze_with(client, bad, {"use_llm": "false"})
     assert res.status_code == 400
     assert "Could not read presentation" in res.json()["detail"]
+
+
+def _isolated_env(tmp_path: Path, monkeypatch) -> Path:
+    """Point the keystore at a throwaway .env and clear any exported keys."""
+    import keystore
+
+    env_path = tmp_path / ".env"
+    monkeypatch.setattr(keystore, "ENV_PATH", env_path)
+    monkeypatch.delenv("PPTXA_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("PPTXA_OPENAI_API_KEY", raising=False)
+    return env_path
+
+
+def test_save_key_endpoint_persists_key_and_model(tmp_path: Path, monkeypatch) -> None:
+    """Saving stores the key plus the model chosen with it, and never echoes the key."""
+    env_path = _isolated_env(tmp_path, monkeypatch)
+    client = _client(tmp_path)
+
+    res = client.post(
+        "/api/key/save",
+        json={"provider": "anthropic", "api_key": "sk-ant-x", "model": "claude-sonnet-5"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["saved_keys"]["anthropic"] is True
+    assert body["key_sources"]["anthropic"] == "env_file"
+    assert body["saved_models"]["anthropic"] == "claude-sonnet-5"
+    assert body["erasable"] == ["anthropic"]
+    assert "sk-ant-x" not in res.text  # the value itself never comes back
+    text = env_path.read_text(encoding="utf-8")
+    assert "PPTXA_ANTHROPIC_API_KEY=sk-ant-x" in text
+    assert "PPTXA_ANTHROPIC_MODEL=claude-sonnet-5" in text
+
+
+def test_save_key_endpoint_keeps_both_providers(tmp_path: Path, monkeypatch) -> None:
+    """Both keys can be saved at once; the second save does not evict the first."""
+    _isolated_env(tmp_path, monkeypatch)
+    client = _client(tmp_path)
+    client.post("/api/key/save", json={"provider": "openai", "api_key": "sk-o", "model": "gpt-4o"})
+    res = client.post(
+        "/api/key/save", json={"provider": "anthropic", "api_key": "sk-a", "model": "claude-sonnet-5"}
+    )
+
+    body = res.json()
+    assert body["saved_keys"] == {"anthropic": True, "openai": True}
+    assert body["saved_models"] == {"anthropic": "claude-sonnet-5", "openai": "gpt-4o"}
+    assert sorted(body["erasable"]) == ["anthropic", "openai"]
+
+
+def test_env_provider_is_not_guessed_when_both_keys_saved(tmp_path: Path, monkeypatch) -> None:
+    """With one key the UI preselects it; with two it falls back to the configured default."""
+    _isolated_env(tmp_path, monkeypatch)
+    client = _client(tmp_path)
+
+    client.post("/api/key/save", json={"provider": "anthropic", "api_key": "sk-a"})
+    assert client.get("/api/env").json()["provider"] == "anthropic"
+
+    client.post("/api/key/save", json={"provider": "openai", "api_key": "sk-o"})
+    assert client.get("/api/env").json()["provider"] == "openai"  # config.py default
+
+
+def test_save_key_endpoint_rejects_bad_provider(tmp_path: Path, monkeypatch) -> None:
+    """An unsupported provider is a 400, and nothing is written."""
+    env_path = _isolated_env(tmp_path, monkeypatch)
+    res = _client(tmp_path).post("/api/key/save", json={"provider": "acme", "api_key": "sk-x"})
+    assert res.status_code == 400
+    assert not env_path.exists()
+
+
+def test_forget_key_endpoint_erases_one_provider(tmp_path: Path, monkeypatch) -> None:
+    """Erasing a named provider leaves the other provider's key saved."""
+    env_path = _isolated_env(tmp_path, monkeypatch)
+    client = _client(tmp_path)
+    client.post("/api/key/save", json={"provider": "openai", "api_key": "sk-openai-x"})
+    client.post("/api/key/save", json={"provider": "anthropic", "api_key": "sk-ant-x"})
+
+    res = client.post("/api/key/forget", json={"providers": ["anthropic"]})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["removed"] == ["anthropic"]
+    assert body["saved_keys"] == {"anthropic": False, "openai": True}
+    text = env_path.read_text(encoding="utf-8")
+    assert "sk-ant-x" not in text
+    assert "sk-openai-x" in text
+
+
+def test_forget_key_endpoint_erases_all_by_default(tmp_path: Path, monkeypatch) -> None:
+    """A bodyless forget clears every saved key."""
+    env_path = _isolated_env(tmp_path, monkeypatch)
+    client = _client(tmp_path)
+    client.post("/api/key/save", json={"provider": "openai", "api_key": "sk-openai-x"})
+    client.post("/api/key/save", json={"provider": "anthropic", "api_key": "sk-ant-x"})
+
+    body = client.post("/api/key/forget").json()
+    assert sorted(body["removed"]) == ["anthropic", "openai"]
+    assert body["can_erase"] is False
+    assert "sk-openai-x" not in env_path.read_text(encoding="utf-8")

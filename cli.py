@@ -51,9 +51,37 @@ def check_command(input_path: Path, json_output: Path | None) -> None:
 @click.option("--output", "output_path", required=True, type=click.Path(dir_okay=False, path_type=Path))
 @click.option("--ledger", "ledger_path", type=click.Path(dir_okay=False, path_type=Path))
 @click.option("--reset-ledger", is_flag=True, help="Delete the existing ledger before this run.")
-def fix_command(input_path: Path, output_path: Path, ledger_path: Path | None, reset_ledger: bool) -> None:
-    """Auto-fix low-risk issues and stage medium/high-risk items."""
-    settings = Settings()
+@click.option(
+    "--llm/--no-llm",
+    "use_llm",
+    default=None,
+    help="Turn AI-assisted suggestions on or off for this run (default: off, per config.py).",
+)
+@click.option(
+    "--provider",
+    "llm_provider",
+    type=click.Choice(sorted(("openai", "anthropic"))),
+    help="AI provider to use with --llm (default: the one in config.py).",
+)
+def fix_command(
+    input_path: Path,
+    output_path: Path,
+    ledger_path: Path | None,
+    reset_ledger: bool,
+    use_llm: bool | None,
+    llm_provider: str | None,
+) -> None:
+    """Auto-fix low-risk issues and stage medium/high-risk items.
+
+    AI is off unless --llm is passed. The API key comes from .env (or the
+    environment); every other setting comes from config.py.
+    """
+    overrides: dict[str, object] = {}
+    if use_llm is not None:
+        overrides["llm_enabled"] = use_llm
+    if llm_provider:
+        overrides["llm_provider"] = llm_provider
+    settings = Settings(**overrides)
     resolved_ledger = ledger_path or output_path.with_suffix(".ledger.json")
     if reset_ledger and resolved_ledger.exists():
         resolved_ledger.unlink()

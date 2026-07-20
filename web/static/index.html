@@ -92,6 +92,9 @@
     .radio input { width:16px; height:16px; accent-color:var(--brand); cursor:pointer; }
     .radio input:disabled { cursor:not-allowed; }
     .radio.is-off { opacity:.45; cursor:not-allowed; }
+    .btn-danger { border-color:rgba(255,107,107,.5); color:#ffb4b4; }
+    .btn-danger:hover:not(:disabled) { background:rgba(255,107,107,.14); }
+    .key-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
 
     .confirm-row { flex-direction:row; align-items:center; gap:14px; flex-wrap:wrap; }
     .confirm-summary { font-size:.85rem; color:var(--text-muted); }
@@ -114,7 +117,9 @@
     .modal-icon { font-size:1.5rem; }
     .modal-head h2 { font-size:1.15rem; margin:0; letter-spacing:-.01em; }
     .modal-body { color:var(--text-muted); margin:0 0 20px; white-space:pre-wrap; word-break:break-word; }
-    .modal-actions { display:flex; justify-content:flex-end; }
+    .modal-actions { display:flex; justify-content:flex-end; gap:10px; }
+    .modal-choices { display:flex; flex-direction:column; gap:8px; margin:0 0 18px; }
+    .modal-choices .btn { justify-content:flex-start; text-align:left; }
 
     .drop {
       border:2px dashed var(--border); border-radius:var(--radius); background:var(--bg-soft);
@@ -218,7 +223,11 @@
               </label>
             </div>
             <input id="apiKey" type="password" autocomplete="off" placeholder="sk-… " disabled />
-            <span class="hint">Held in memory for this session only — never saved to disk or sent anywhere except your chosen AI provider.</span>
+            <span class="hint">Held in memory for this session only unless you choose to save it. Never sent anywhere except your chosen AI provider.</span>
+            <div class="key-actions">
+              <button id="eraseKeyBtn" class="btn btn-ghost btn-sm btn-danger hidden" type="button">🗑 Erase saved key</button>
+              <span id="keyStatusNote" class="hint"></span>
+            </div>
           </div>
         </div>
         <div class="field">
@@ -264,8 +273,10 @@
         <h2 id="modalTitle">Something went wrong</h2>
       </div>
       <p id="modalBody" class="modal-body"></p>
+      <div id="modalChoices" class="modal-choices hidden"></div>
       <div class="modal-actions">
         <button id="modalClose" class="btn btn-primary" type="button">Dismiss</button>
+        <button id="modalConfirm" class="btn btn-primary hidden" type="button">Confirm</button>
       </div>
     </div>
   </div>
@@ -279,14 +290,74 @@
     const RISK = { low:'low', medium:'medium', high:'high' };
     const drop = $('drop'), fileInput = $('fileInput');
 
-    // ---- Error popup ------------------------------------------------------
-    function showError(title, message) {
-      $('modalTitle').textContent = title || 'Something went wrong';
-      $('modalBody').textContent = message || 'An unexpected error occurred. Please try again.';
+    // ---- Popups: a message-only alert, and a two-button confirmation -------
+    function openModal(icon, title, message) {
+      $('modalIcon').textContent = icon;
+      $('modalTitle').textContent = title;
+      $('modalBody').textContent = message;
       $('modal').classList.remove('hidden');
+    }
+    function clearChoices() {
+      $('modalChoices').innerHTML = '';
+      $('modalChoices').classList.add('hidden');
+    }
+    function showError(title, message) {
+      $('modalConfirm').classList.add('hidden');
+      clearChoices();
+      $('modalClose').textContent = 'Dismiss';
+      $('modalClose').className = 'btn btn-primary';
+      openModal('⚠️', title || 'Something went wrong',
+        message || 'An unexpected error occurred. Please try again.');
       $('modalClose').focus();
     }
-    function closeModal() { $('modal').classList.add('hidden'); }
+    function showInfo(title, message) {
+      $('modalConfirm').classList.add('hidden');
+      clearChoices();
+      $('modalClose').textContent = 'OK';
+      $('modalClose').className = 'btn btn-primary';
+      openModal('✅', title, message);
+      $('modalClose').focus();
+    }
+    // Offers several named actions (e.g. which saved key to erase), each its own
+    // button, plus a cancel. Used when a yes/no confirmation cannot express the choice.
+    function showChoice(opts) {
+      $('modalConfirm').classList.add('hidden');
+      const box = $('modalChoices');
+      box.innerHTML = '';
+      opts.choices.forEach(choice => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn' + (choice.danger ? ' btn-danger' : '');
+        btn.textContent = choice.label;
+        btn.addEventListener('click', () => { closeModal(); choice.onSelect(); });
+        box.appendChild(btn);
+      });
+      box.classList.remove('hidden');
+      $('modalClose').textContent = opts.cancelLabel || 'Cancel';
+      $('modalClose').className = 'btn btn-ghost';
+      openModal(opts.icon || '🔑', opts.title, opts.message);
+      box.firstChild.focus();
+    }
+    // Asks a yes/no question; `onConfirm` runs only on the affirmative button.
+    function showConfirm(opts) {
+      clearChoices();
+      const confirmBtn = $('modalConfirm');
+      confirmBtn.textContent = opts.confirmLabel;
+      confirmBtn.className = 'btn btn-primary' + (opts.danger ? ' btn-danger' : '');
+      confirmBtn.classList.remove('hidden');
+      $('modalClose').textContent = opts.cancelLabel || 'Cancel';
+      $('modalClose').className = 'btn btn-ghost';
+      pendingConfirm = opts.onConfirm;
+      openModal(opts.icon || '🔑', opts.title, opts.message);
+      confirmBtn.focus();
+    }
+    let pendingConfirm = null;
+    function closeModal() { pendingConfirm = null; $('modal').classList.add('hidden'); }
+    $('modalConfirm').addEventListener('click', () => {
+      const run = pendingConfirm;
+      closeModal();
+      if (run) run();
+    });
     $('modalClose').addEventListener('click', closeModal);
     $('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('modal').classList.contains('hidden')) closeModal(); });
@@ -299,6 +370,11 @@
     const useLlm = $('useLlm'), provider = $('provider'), modelInput = $('model'), apiKey = $('apiKey');
     const keySaved = $('keySaved'), keyNew = $('keyNew');
     let savedKeys = { anthropic: false, openai: false };
+    let keySources = { anthropic: null, openai: null };  // 'env_file' | 'environment' | null
+    let savedModels = { anthropic: null, openai: null };  // model saved with each key
+    let erasable = [];  // providers whose key lives in .env and can be erased
+    // The key value we have already offered to save, so we ask once per key.
+    let saveOfferedFor = '';
     let confirmed = false;
 
     function hasSavedKey() { return !!savedKeys[provider.value]; }
@@ -319,26 +395,63 @@
       apiKey.disabled = !(on && keyNew.checked);
     }
 
+    function savedProviders() { return Object.keys(savedKeys).filter(p => savedKeys[p]); }
+    function providerLabel(p) { return MODEL_DEFAULTS[p].label; }
+
     function updateEnvNote() {
-      const names = Object.keys(savedKeys).filter(p => savedKeys[p]).map(p => MODEL_DEFAULTS[p].label);
+      const saved = savedProviders();
       const note = $('envNote');
-      if (names.length) {
+      if (saved.length > 1) {
+        // Both keys are saved: the user must say which one this run should use.
         note.classList.remove('hidden');
-        note.innerHTML = '🔑 A saved API key was detected in <b>.env</b> for: <b>' + escapeHtml(names.join(', ')) +
-          '</b>. Turn on AI to use it, or choose “Enter a new key”.';
+        const bolded = saved.map(p => '<b>' + escapeHtml(providerLabel(p)) + '</b>').join(' and ');
+        note.innerHTML = '🔑 Saved API keys were detected in <b>.env</b> for ' + bolded +
+          '. Pick which one to use under <b>AI provider</b> below — its saved key is selected by default.';
+      } else if (saved.length === 1) {
+        note.classList.remove('hidden');
+        note.innerHTML = '🔑 A saved API key was detected in <b>.env</b> for <b>' +
+          escapeHtml(providerLabel(saved[0])) + '</b>. Turn on AI to use it, or choose “Enter a new key”.';
       } else {
         note.classList.add('hidden');
       }
+
+      const savedModel = savedModels[provider.value];
       $('keySavedLabel').textContent = hasSavedKey()
-        ? 'Use saved key from .env (detected)'
-        : 'Use saved key from .env (none found)';
+        ? 'Use saved ' + providerLabel(provider.value) + ' key from .env' + (savedModel ? ' (' + savedModel + ')' : '')
+        : 'Use saved key from .env (none saved for ' + providerLabel(provider.value) + ')';
+
+      // Erasing only works on .env; a key exported in the shell outranks it.
+      $('eraseKeyBtn').classList.toggle('hidden', erasable.length === 0);
+      $('eraseKeyBtn').textContent = erasable.length > 1 ? '🗑 Erase a saved key…' : '🗑 Erase saved key';
+      const status = $('keyStatusNote');
+      const shellOnly = Object.keys(keySources).filter(p => keySources[p] === 'environment');
+      const parts = [];
+      if (erasable.length) {
+        parts.push('Saved in .env: ' + erasable.map(providerLabel).join(', ') + '.');
+      }
+      if (shellOnly.length) {
+        parts.push('A ' + shellOnly.map(providerLabel).join(' and ') +
+          ' key comes from your shell environment, not .env — it cannot be erased from here.');
+      }
+      status.textContent = parts.join(' ');
+    }
+
+    function applyKeyStatus(data) {
+      savedKeys = data.saved_keys || savedKeys;
+      keySources = data.key_sources || keySources;
+      savedModels = data.saved_models || savedModels;
+      erasable = data.erasable || [];
     }
 
     function applyProviderDefaults(resetModel) {
       const cfg = MODEL_DEFAULTS[provider.value] || MODEL_DEFAULTS.anthropic;
       apiKey.placeholder = cfg.placeholder;
       $('modelList').innerHTML = cfg.options.map(m => '<option value="' + m + '"></option>').join('');
-      if (resetModel || !modelInput.value.trim()) modelInput.value = cfg.default;
+      // A saved key restores the model it was saved with, so switching provider
+      // brings back that provider's whole setup rather than a bare default.
+      if (resetModel || !modelInput.value.trim()) {
+        modelInput.value = savedModels[provider.value] || cfg.default;
+      }
       // Prefer the saved key when one exists for the selected provider.
       if (useLlm.checked && hasSavedKey()) keySaved.checked = true;
       updateEnvNote();
@@ -383,7 +496,126 @@
         s.innerHTML = '<b>AI is ON</b> — ' + escapeHtml(label) + ' · ' + escapeHtml(model) + ', using ' + src + '.';
       }
       setConfirmed(true);
+      maybeOfferSave();
     }
+
+    // ---- Saving / erasing the one local key -------------------------------
+    // Offered once per distinct key, right after the user confirms settings with
+    // a freshly typed key. Declining leaves the key in memory for this session.
+    function maybeOfferSave() {
+      if (!useLlm.checked || !keyNew.checked) return;
+      const value = apiKey.value.trim();
+      if (!value || value === saveOfferedFor) return;
+      saveOfferedFor = value;
+
+      const label = providerLabel(provider.value);
+      const model = modelInput.value.trim() || MODEL_DEFAULTS[provider.value].default;
+      const replacing = savedKeys[provider.value] && keySources[provider.value] === 'env_file';
+      let message = 'Save this ' + label + ' key to .env on this computer, along with the model ' +
+        '“' + model + '”, so you do not have to enter them again?\n\n' +
+        'The file stays on this machine and is already excluded from git.';
+      message += replacing
+        ? '\n\nThis replaces the ' + label + ' key already saved. Your key for the other provider is not affected.'
+        : '\n\nA key saved for the other provider is not affected — you can keep both.';
+      showConfirm({
+        title: 'Save this API key locally?',
+        message: message,
+        confirmLabel: 'Save key',
+        cancelLabel: "Don't save",
+        onConfirm: () => saveKeyLocally(provider.value, value, model),
+      });
+    }
+
+    async function saveKeyLocally(providerName, value, model) {
+      try {
+        const res = await fetch('/api/key/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: providerName, api_key: value, model: model }),
+        });
+        const data = await parseJson(res);
+        if (!res.ok) throw new ApiError(res.status, data.detail);
+        applyKeyStatus(data);
+        updateEnvNote();
+        syncLlmFields();
+        showInfo('Key saved', 'Your ' + providerLabel(providerName) + ' key and model “' + model +
+          '” are saved in .env. Next time you can pick “Use saved key from .env”.');
+      } catch (err) {
+        reportError(err, 'Could not save the API key');
+      }
+    }
+
+    // With two saved keys an erase is ambiguous, so ask which one rather than
+    // assuming; with one, a plain confirmation is enough.
+    function confirmErase() {
+      if (erasable.length === 0) return;
+      if (erasable.length === 1) {
+        const only = erasable[0];
+        showConfirm({
+          icon: '🗑',
+          title: 'Erase the saved ' + providerLabel(only) + ' key?',
+          message: 'This removes the ' + providerLabel(only) + ' key and its saved model from .env on ' +
+            'this computer. Your provider account is unaffected, and you can enter the key again at any time.',
+          confirmLabel: 'Erase key',
+          cancelLabel: 'Keep it',
+          danger: true,
+          onConfirm: () => eraseSavedKeys([only]),
+        });
+        return;
+      }
+      const choices = erasable.map(p => ({
+        label: 'Erase only the ' + providerLabel(p) + ' key',
+        danger: true,
+        onSelect: () => eraseSavedKeys([p]),
+      }));
+      choices.push({
+        label: 'Erase both saved keys',
+        danger: true,
+        onSelect: () => eraseSavedKeys(erasable.slice()),
+      });
+      showChoice({
+        icon: '🗑',
+        title: 'Which saved key should be erased?',
+        message: 'Keys are saved in .env for ' + erasable.map(providerLabel).join(' and ') +
+          '. Choose which to remove — the other stays saved.',
+        choices: choices,
+        cancelLabel: 'Keep both',
+      });
+    }
+
+    async function eraseSavedKeys(providers) {
+      try {
+        const res = await fetch('/api/key/forget', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providers: providers }),
+        });
+        const data = await parseJson(res);
+        if (!res.ok) throw new ApiError(res.status, data.detail);
+        applyKeyStatus(data);
+        saveOfferedFor = '';
+        updateEnvNote();
+        syncLlmFields();
+        invalidateConfirm();
+        const removed = (data.removed || []).map(providerLabel);
+        const stillSaved = erasable.map(providerLabel);
+        let message = removed.length
+          ? 'Removed the saved ' + removed.join(' and ') + ' key from .env.'
+          : 'There was no matching key saved in .env.';
+        if (stillSaved.length) message += ' Still saved: ' + stillSaved.join(', ') + '.';
+        const shellOnly = Object.keys(keySources).filter(p => keySources[p] === 'environment');
+        if (shellOnly.length) {
+          message += ' Note: a ' + shellOnly.map(providerLabel).join(' and ') +
+            ' key is still set in your shell environment, which this app cannot remove — ' +
+            'unset it in your shell to fully clear it.';
+        }
+        showInfo('Saved key erased', message);
+      } catch (err) {
+        reportError(err, 'Could not erase the saved API key');
+      }
+    }
+
+    $('eraseKeyBtn').addEventListener('click', confirmErase);
 
     // Any change to the AI settings re-requires an explicit confirmation.
     [useLlm, provider, modelInput, apiKey, keySaved, keyNew].forEach(el => {
@@ -400,7 +632,7 @@
         const res = await fetch('/api/env');
         if (res.ok) {
           const data = await res.json();
-          savedKeys = data.saved_keys || savedKeys;
+          applyKeyStatus(data);
           if (data.provider && data.provider in MODEL_DEFAULTS) provider.value = data.provider;
         }
       } catch (_) { /* env detection is best-effort; fall back to no saved keys */ }

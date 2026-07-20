@@ -33,7 +33,7 @@ This project addresses that gap with a practical, open-source agentic system tha
 | CLI interface | `click` |
 | Local web app | `FastAPI` + `uvicorn` (single static page, no build step) |
 | Testing | `pytest` |
-| Configuration | `pydantic-settings` / `.env` |
+| Configuration | `config.py` (settings) / `.env` (API key only) |
 | Logging & audit trail | `structlog` + JSON log files |
 | Diff / rollback storage | JSON snapshots per fix item |
 
@@ -225,39 +225,78 @@ suggestion drafting) requires extra packages and an API key — see **Configurat
 
 ## Configuration
 
-All configuration is optional. Settings are read from environment variables or a `.env`
-file in the project root, using the `pydantic-settings` model in `config.py`. **Every
-setting uses the `PPTXA_` prefix.**
+Configuration is split in two, so a secrets file never doubles as a config file:
 
-### Create a `.env` file
+| What | Where | Notes |
+|---|---|---|
+| **API keys** | `.env` in the project root | One key per provider, plus the model saved with each. Git-ignored, `600` permissions. Managed by the app. |
+| **Everything else** | [`config.py`](config.py) | Plain Python defaults — edit them directly. Tracked in git. |
 
-Create a file named `.env` in the project root (it is git-ignored — never commit API keys):
+All configuration is optional: with no `.env` and an untouched `config.py`, the tool runs the
+full deterministic pipeline.
+
+### API keys — `.env`
+
+`.env` holds **an API key per provider, and the model saved with each** — nothing else:
 
 ```dotenv
-# .env — all keys are optional; shown with their defaults
+# .env — API keys and the model saved with each, written by the app.
+# Every other setting lives in config.py. This file is git-ignored.
 
-# --- General behavior ---
-PPTXA_DEFAULT_LANGUAGE=en-US          # language metadata injected when missing
-PPTXA_DEFAULT_LEDGER_NAME=ledger.json # default ledger filename
-PPTXA_SNAPSHOT_DIR_NAME=snapshots     # snapshot subdirectory name
-PPTXA_AUTO_TITLE_PREFIX=Slide         # prefix for auto-generated slide titles
+PPTXA_OPENAI_API_KEY=sk-...
+PPTXA_OPENAI_MODEL=gpt-4o-mini
 
-# --- Optional LLM layer (OFF by default) ---
-PPTXA_LLM_ENABLED=false               # set true to turn on AI-assisted suggestions
-PPTXA_LLM_PROVIDER=openai             # "openai" or "anthropic"
-
-# Provide a key only for the provider you select:
-PPTXA_OPENAI_API_KEY=sk-...           # required if provider = openai
-PPTXA_ANTHROPIC_API_KEY=sk-ant-...    # required if provider = anthropic
-
-PPTXA_OPENAI_MODEL=gpt-4o-mini        # model used for the openai provider
-PPTXA_ANTHROPIC_MODEL=claude-opus-4-8 # model used for the anthropic provider
-PPTXA_LLM_TIMEOUT_SECONDS=30          # per-request timeout
-PPTXA_LLM_MAX_OUTPUT_TOKENS=300       # cap on generated suggestion length
+PPTXA_ANTHROPIC_API_KEY=sk-ant-...
+PPTXA_ANTHROPIC_MODEL=claude-opus-4-8
 ```
 
-You can also export any of these as shell environment variables instead of using `.env`;
-environment variables take precedence.
+**Both providers can have a key saved at the same time.** Saving or erasing one
+never touches the other, and no default provider is inferred from what happens
+to be on disk — the choice is always explicit:
+
+| Situation | What the web app does |
+|---|---|
+| No saved key | Enter a key; you are then offered the chance to save it. |
+| One saved key | That provider is preselected, with **Use saved key from .env** available. |
+| Both saved | Both are reported; you pick under **AI provider**, and its saved key and model load automatically. |
+
+You normally never edit this file by hand. The web app writes it for you: enter a
+key, and after you confirm settings it offers to save that key **and the model you
+chose with it**, so selecting the provider next time restores the whole setup.
+
+To remove a saved key, use **Erase saved key** in the same panel. With two keys
+saved, it asks which to erase — one provider, or both.
+
+> Writes are a merge, so comments and any other lines you add by hand are
+> preserved. Settings still belong in `config.py`, not here.
+
+### Everything else — `config.py`
+
+Open [`config.py`](config.py) and edit the defaults directly:
+
+```python
+# --- General behavior ---
+default_language: str = "en-US"          # language metadata injected when missing
+default_ledger_name: str = "ledger.json"
+snapshot_dir_name: str = "snapshots"
+auto_title_prefix: str = "Slide"         # prefix for auto-generated slide titles
+
+# --- Optional LLM layer (OFF by default) ---
+llm_enabled: bool = False
+llm_provider: str = "openai"             # "openai" or "anthropic"
+openai_model: str = "gpt-4o-mini"
+anthropic_model: str = "claude-opus-4-8"
+llm_timeout_seconds: int = 30            # per-request timeout
+llm_max_output_tokens: int = 300         # cap on generated suggestion length
+```
+
+To override a setting for a single run without editing the file, export it as a
+shell environment variable with the `PPTXA_` prefix — environment variables take
+precedence over both `config.py` and `.env`:
+
+```bash
+PPTXA_DEFAULT_LANGUAGE=fr-FR uv run python cli.py fix --input deck.pptx --output fixed.pptx
+```
 
 ### Enabling the optional LLM layer
 
@@ -269,11 +308,18 @@ fix drafting:
 # 1. Install the optional LLM SDKs (anthropic + openai)
 uv sync --extra llm
 
-# 2. In .env, enable the layer and supply a key for your chosen provider
-#    PPTXA_LLM_ENABLED=true
-#    PPTXA_LLM_PROVIDER=anthropic
+# 2. Save a key — either let the web app store it for you (uv run python cli.py serve),
+#    or write one line to .env yourself:
 #    PPTXA_ANTHROPIC_API_KEY=sk-ant-...
+
+# 3. Turn AI on for a run with --llm
+uv run python cli.py fix --input deck.pptx --output fixed.pptx --llm --provider anthropic
 ```
+
+`--llm` / `--no-llm` overrides `llm_enabled` for that run, and `--provider` overrides
+`llm_provider`. In the web app the same choice is the "Use AI (LLM) suggestions" toggle,
+made per upload. To make AI the default for every CLI run, set `llm_enabled: bool = True`
+in `config.py`.
 
 **The LLM layer fails safe.** If it is disabled, the SDK is not installed, the provider name
 is unknown, or the API key is missing, the tool logs a warning and silently falls back to the

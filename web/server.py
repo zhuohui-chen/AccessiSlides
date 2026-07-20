@@ -22,6 +22,7 @@ from audit.rollback import ROLLBACK_ALLOWED_STATUSES, _restore_snapshot
 from audit.snapshot import load_snapshot
 from checker.engine import run_checks_on_presentation
 from config import Settings
+from keystore import KEY_VARS, clear_saved_keys, key_status, save_key, saved_providers
 from fixer.auto_fix import apply_auto_fix
 from fixer.flag_manual import record_manual_flag
 from fixer.suggest_fix import (
@@ -54,6 +55,20 @@ class ApproveBody(BaseModel):
     """Optional replacement text supplied when approving a suggestion."""
 
     replacement_text: str | None = None
+
+
+class SaveKeyBody(BaseModel):
+    """A provider API key, and the model chosen with it, to save locally."""
+
+    provider: str
+    api_key: str
+    model: str | None = None
+
+
+class ForgetKeyBody(BaseModel):
+    """Which providers' saved keys to erase. ``None`` means all of them."""
+
+    providers: list[str] | None = None
 
 
 def _truthy(value: str) -> bool:
@@ -162,6 +177,29 @@ def _ledger_payload(job: Job) -> dict[str, Any]:
     return {"job_id": job.job_id, "filename": job.original_filename, "counts": counts, "items": rows}
 
 
+def _env_payload() -> dict[str, Any]:
+    """Describe the saved-key state for the frontend, without leaking any key.
+
+    Returns per-provider booleans, the source of each key (``"env_file"`` /
+    ``"environment"``), the model saved with each key, and the list of providers
+    whose key can actually be erased — only ``.env`` keys can be.
+
+    The value of a key is never included. ``provider`` is the initial selection
+    for the UI: the sole saved provider when there is exactly one, otherwise the
+    default from ``config.py``, leaving the choice to the user.
+    """
+    status = key_status()
+    saved = saved_providers()
+    return {
+        "saved_keys": {name: bool(info["present"]) for name, info in status.items()},
+        "key_sources": {name: info["source"] for name, info in status.items()},
+        "saved_models": {name: info["model"] for name, info in status.items()},
+        "erasable": [name for name, info in status.items() if info["source"] == "env_file"],
+        "can_erase": any(info["source"] == "env_file" for info in status.values()),
+        "provider": saved[0] if len(saved) == 1 else (Settings().llm_provider or "openai").strip().lower(),
+    }
+
+
 def _require_job(store: JobStore, job_id: str) -> Job:
     """Fetch a job or raise 404."""
     job = store.get(job_id)
@@ -200,22 +238,52 @@ def create_app(store: JobStore | None = None) -> FastAPI:
 
     @app.get("/api/env")
     def env_status() -> JSONResponse:
-        """Report which providers have a saved API key, without leaking it.
+        """Report which providers have a saved API key, without leaking it."""
+        return JSONResponse(_env_payload())
 
-        The frontend uses this to offer "use the saved ``.env`` key" as an
-        option. Only booleans and the configured default provider are returned;
-        the key value itself never leaves the server.
+    @app.post("/api/key/save")
+    def save_api_key(body: SaveKeyBody) -> JSONResponse:
+        """Save one provider's key, and the model chosen with it, to ``.env``.
+
+        Called only when the user explicitly opts in after entering a key. A key
+        already saved for the other provider is left untouched — both providers
+        can have a saved key at once.
         """
-        env_settings = Settings()
-        return JSONResponse(
-            {
-                "saved_keys": {
-                    "anthropic": bool((env_settings.anthropic_api_key or "").strip()),
-                    "openai": bool((env_settings.openai_api_key or "").strip()),
-                },
-                "provider": (env_settings.llm_provider or "anthropic").strip().lower(),
-            }
-        )
+        provider = (body.provider or "").strip().lower()
+        if provider not in KEY_VARS:
+            raise HTTPException(status_code=400, detail="Choose a supported AI provider.")
+        try:
+            save_key(provider, body.api_key, model=body.model)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Could not write the .env file: {exc}"
+            ) from exc
+        LOGGER.info("api_key_saved", provider=provider, model=(body.model or "").strip() or None)
+        return JSONResponse(_env_payload())
+
+    @app.post("/api/key/forget")
+    def forget_api_key(body: ForgetKeyBody | None = None) -> JSONResponse:
+        """Erase saved keys from ``.env``, for the named providers or all of them.
+
+        Keys exported in the shell environment outrank ``.env`` and cannot be
+        removed by editing a file; the response reports what remains so the
+        frontend can say so plainly instead of claiming a false success.
+        """
+        requested = body.providers if body else None
+        try:
+            removed = clear_saved_keys(requested)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Could not write the .env file: {exc}"
+            ) from exc
+        LOGGER.info("api_keys_cleared", providers=removed)
+        payload = _env_payload()
+        payload["removed"] = removed
+        return JSONResponse(payload)
 
     @app.post("/api/analyze")
     async def analyze(
