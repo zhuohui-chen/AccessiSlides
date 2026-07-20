@@ -308,10 +308,6 @@
       border-radius: var(--radius); padding: 16px 16px 18px; display: flex; flex-direction: column;
     }
     .video-os { font-weight: 700; font-size: .95rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; color: var(--text); }
-    .video-os .soon-tag {
-      margin-left: auto; font-size: .64rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
-      padding: 3px 9px; border-radius: 999px; background: rgba(255,200,87,.16); color: var(--medium);
-    }
     /* Responsive 16:9 frame holding either the embed or the facade thumbnail. */
     .video-frame {
       position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden;
@@ -330,10 +326,6 @@
       box-shadow: 0 6px 24px rgba(0,0,0,.5); transition: transform .15s, background .15s;
     }
     .video-play:hover::after, .video-play:focus-visible::after { transform: translate(-42%, -50%) scale(1.08); background: var(--brand); color: #06122c; }
-    /* "Coming soon" state for a walkthrough not yet recorded. */
-    .video-soon { display: grid; place-items: center; text-align: center; padding: 18px; background: var(--bg-soft); }
-    .video-soon .soon-inner { color: var(--text-dim); font-size: .9rem; line-height: 1.5; }
-    .video-soon .soon-inner strong { display: block; color: var(--text-muted); font-size: 1.1rem; margin-bottom: 6px; }
     .video-card figcaption { margin-top: 12px; font-size: .88rem; color: var(--text-muted); }
     @media (max-width: 620px) { .video-grid { grid-template-columns: 1fr; } }
 
@@ -708,26 +700,19 @@
               (<a href="https://youtu.be/0YZbLaJf2pM">open on YouTube ↗</a>)</figcaption>
           </figure>
 
-          <!-- Windows walkthrough: not recorded yet. To publish it later, replace
-               the .video-soon block below with the same facade markup as macOS,
-               using the Windows video id:
-               <div class="video-frame">
-                 <button type="button" class="video-play"
-                         aria-label="Play the Windows install walkthrough video"
-                         data-embed="https://www.youtube-nocookie.com/embed/VIDEO_ID?autoplay=1">
-                   <img src="https://i.ytimg.com/vi/VIDEO_ID/hqdefault.jpg" alt="" loading="lazy" />
-                 </button>
-               </div>
-               and drop the "soon-tag" span + update the caption. -->
           <figure class="video-card">
-            <div class="video-os"><span aria-hidden="true">🪟</span> Windows install walkthrough <span class="soon-tag">Coming soon</span></div>
-            <div class="video-frame video-soon">
-              <div class="soon-inner">
-                <strong>🎬 Coming soon</strong>
-                The Windows walkthrough is being recorded. Until it's ready, the written steps below cover Windows in full.
-              </div>
+            <div class="video-os"><span aria-hidden="true">🪟</span> Windows install walkthrough</div>
+            <!-- Click-to-load facade: shows YouTube's thumbnail; the player loads
+                 only when the user presses play (faster page, no auto-tracking). -->
+            <div class="video-frame">
+              <button type="button" class="video-play"
+                      aria-label="Play the Windows install walkthrough video"
+                      data-embed="https://www.youtube-nocookie.com/embed/AqMAhsf95w4?autoplay=1">
+                <img src="https://i.ytimg.com/vi/AqMAhsf95w4/hqdefault.jpg" alt="" loading="lazy" />
+              </button>
             </div>
-            <figcaption>In the meantime, follow the <a href="#install-steps">step-by-step guide</a> — every step lists the Windows commands.</figcaption>
+            <figcaption>Watch the full Windows setup — download, install <code>uv</code>, and first launch.
+              (<a href="https://youtu.be/AqMAhsf95w4">open on YouTube ↗</a>)</figcaption>
           </figure>
         </div>
 
